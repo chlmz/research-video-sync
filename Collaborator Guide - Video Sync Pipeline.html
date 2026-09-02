@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Research Video Sync Pipeline — Collaborator Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f8f7f3;
+    --surface: #ffffff;
+    --border: #e2e0d8;
+    --accent: #1a3fff;
+    --accent2: #ff3d1a;
+    --text: #1a1a1a;
+    --muted: #666;
+    --green: #1a7a4a;
+    --green-bg: #f0faf5;
+    --yellow-bg: #fffbf0;
+    --yellow-border: #f0c040;
+    --code-bg: #1a1a2e;
+  }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 0;
+    line-height: 1.7;
+  }
+
+  /* Header */
+  .hero {
+    background: var(--text);
+    color: #fff;
+    padding: 56px 40px 48px;
+  }
+
+  .hero .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 12px;
+  }
+
+  .hero h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 16px;
+    color: #fff;
+  }
+
+  .hero p {
+    color: #aaa;
+    font-size: 1rem;
+    max-width: 600px;
+  }
+
+  .hero .meta {
+    margin-top: 24px;
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: #666;
+  }
+
+  .meta-item span { color: #ccc; }
+
+  /* Main content */
+  .content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 56px 32px;
+  }
+
+  /* Section */
+  .section { margin-bottom: 56px; }
+
+  .section-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(26,63,255,0.25);
+    border-radius: 4px;
+    padding: 3px 10px;
+    margin-bottom: 20px;
+  }
+
+  h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+    color: var(--text);
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  p { color: var(--muted); font-size: 0.92rem; margin-bottom: 12px; }
+  p strong { color: var(--text); }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+
+  /* Pipeline flow */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 24px 0;
+  }
+
+  .pipeline-step {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    position: relative;
+  }
+
+  .pipeline-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 19px;
+    top: 44px;
+    width: 2px;
+    height: calc(100% - 8px);
+    background: var(--border);
+  }
+
+  .step-circle {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--text);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 500;
+    z-index: 1;
+  }
+
+  .step-body {
+    padding: 8px 0 32px;
+    flex: 1;
+  }
+
+  .step-body h3 { font-size: 1rem; margin-bottom: 4px; }
+  .step-body p { margin-bottom: 0; font-size: 0.88rem; }
+
+  /* Code blocks */
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+    background: #eeeef8;
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-size: 0.82rem;
+    color: var(--accent);
+  }
+
+  .code-block {
+    background: var(--code-bg);
+    border-radius: 10px;
+    padding: 20px 22px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    color: #e8e8f8;
+    line-height: 1.8;
+    margin: 12px 0;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .code-block .comment { color: #555; }
+  .code-block .value { color: #7dd3fc; }
+  .code-block .cmd { color: #86efac; }
+
+  /* Folder tree */
+  .folder-tree {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 2;
+    margin: 16px 0;
+  }
+
+  .f-root { color: var(--accent); font-weight: 600; }
+  .f-part { color: #059669; }
+  .f-mom { color: #dc2626; }
+  .f-child { color: #2563eb; }
+  .f-out { color: #888; }
+  .f-note { color: #bbb; font-size: 0.75rem; }
+
+  /* Callout boxes */
+  .callout {
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 20px 0;
+    font-size: 0.88rem;
+  }
+
+  .callout-green {
+    background: var(--green-bg);
+    border: 1px solid #a7f3d0;
+    border-left: 4px solid var(--green);
+  }
+
+  .callout-yellow {
+    background: var(--yellow-bg);
+    border: 1px solid var(--yellow-border);
+    border-left: 4px solid #d97706;
+  }
+
+  .callout-blue {
+    background: #f0f3ff;
+    border: 1px solid #c7d2fe;
+    border-left: 4px solid var(--accent);
+  }
+
+  .callout h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+
+  .callout p { margin-bottom: 0; color: var(--muted); }
+
+  /* What to change table */
+  .change-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    margin: 16px 0;
+  }
+
+  .change-table th {
+    background: var(--text);
+    color: #fff;
+    padding: 10px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.8rem;
+  }
+
+  .change-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .change-table tr:last-child td { border-bottom: none; }
+  .change-table tr:nth-child(even) td { background: #fafaf8; }
+
+  .change-table td:first-child {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  /* OS tabs */
+  .os-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+
+  .os-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+
+  .os-card h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .os-card p { font-size: 0.82rem; margin-bottom: 8px; }
+
+  /* Output preview */
+  .output-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0;
+  }
+
+  .output-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .output-card .icon { font-size: 1.8rem; margin-bottom: 8px; }
+  .output-card .label { font-size: 0.7rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; margin-bottom: 4px; }
+  .output-card .name { font-size: 0.78rem; color: var(--text); font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+
+  /* Footer */
+  .footer {
+    background: var(--text);
+    color: #666;
+    text-align: center;
+    padding: 32px;
+    font-size: 0.8rem;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  @media (max-width: 600px) {
+    .hero { padding: 40px 24px; }
+    .hero h1 { font-size: 1.8rem; }
+    .os-grid { grid-template-columns: 1fr; }
+    .output-row { grid-template-columns: 1fr; }
+    .content { padding: 40px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="eyebrow">Mother–Child Interaction Research · GPIS / FURG</div>
+  <h1>Automated Video<br>Sync Pipeline</h1>
+  <p>A guide for research collaborators on how to use the automated video synchronization script for dual-camera recordings.</p>
+  <div class="meta">
+    <div class="meta-item">Version <span>1.0</span></div>
+    <div class="meta-item">Compatible <span>Mac · Windows · Linux</span></div>
+    <div class="meta-item">Formats <span>AVI · MP4 · MOV · MKV</span></div>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- WHAT IT DOES -->
+  <div class="section">
+    <div class="section-tag">Overview</div>
+    <h2>What this script does</h2>
+    <p>In our research, each session is filmed by <strong>two wearable cameras</strong> — one worn by the mother and one by the child. Because the cameras are started manually, the two recordings are never perfectly aligned in time. This script automatically finds the time difference between the two videos and trims them so they start at exactly the same moment.</p>
+    <p>It processes your <strong>entire project folder at once</strong>, handling all participants in a single run, skipping anyone already processed, and generating a report of everything it did.</p>
+  </div>
+
+  <hr>
+
+  <!-- PIPELINE -->
+  <div class="section">
+    <div class="section-tag">How it works</div>
+    <h2>The pipeline, step by step</h2>
+
+    <div class="pipeline">
+
+      <div class="pipeline-step">
+        <div class="step-circle">1</div>
+        <div class="step-body">
+          <h3>Scan the project folder</h3>
+          <p>The script looks inside your project folder and finds every participant subfolder. It checks for a hidden <code>.sync_done</code> marker — if it's there, the participant was already processed and gets skipped. Only new folders are processed.</p>
+        </div>
+      </div>
+
+      <div class="pipeline-step">
+        <div class="step-circle">2</div>
+        <div class="step-body">
+          <h3>Find the two video files</h3>
+          <p>Inside each participant folder it looks for a file containing <code>_mom</code> and a file containing <code>_child</code> in the filename. It accepts AVI, MP4, MOV, and MKV formats automatically.</p>
+        </div>
+      </div>
+
+      <div class="pipeline-step">
+        <div class="step-circle">3</div>
+        <div class="step-body">
+          <h3>Extract and analyze audio</h3>
+          <p>It extracts the audio track from both videos and runs an <strong>FFT cross-correlation</strong> — a mathematical technique that compares the two audio waveforms across the entire recording to find the exact moment they overlap. This gives an offset in seconds, accurate to ~0.1 seconds.</p>
+        </div>
+      </div>
+
+      <div class="pipeline-step">
+        <div class="step-circle">4</div>
+        <div class="step-body">
+          <h3>Trim and export synced videos</h3>
+          <p>Whichever camera started recording earlier gets its beginning trimmed by the exact offset. The result is two videos that start at the same real-world moment. Both are exported as MP4.</p>
+        </div>
+      </div>
+
+      <div class="pipeline-step">
+        <div class="step-circle">5</div>
+        <div class="step-body">
+          <h3>Create side-by-side video</h3>
+          <p>A third file is created with both cameras playing simultaneously — mom's view on the left, child's view on the right. This is the main file used for behavioral coding and analysis.</p>
+        </div>
+      </div>
+
+      <div class="pipeline-step">
+        <div class="step-circle">6</div>
+        <div class="step-body">
+          <h3>Mark as done and update report</h3>
+          <p>A hidden <code>.sync_done</code> file is placed in the participant folder so it won't be re-processed. A row is added to <code>sync_report.csv</code> with the participant ID, offset in seconds, status, and timestamp.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- OUTPUT -->
+  <div class="section">
+    <div class="section-tag">Output files</div>
+    <h2>What you get per participant</h2>
+
+    <div class="output-row">
+      <div class="output-card">
+        <div class="icon">🎬</div>
+        <div class="label">Output 1</div>
+        <div class="name">ID_mom_synced.mp4</div>
+      </div>
+      <div class="output-card">
+        <div class="icon">🎬</div>
+        <div class="label">Output 2</div>
+        <div class="name">ID_child_synced.mp4</div>
+      </div>
+      <div class="output-card">
+        <div class="icon">🖥️</div>
+        <div class="label">Output 3</div>
+        <div class="name">ID_side_by_side.mp4</div>
+      </div>
+    </div>
+
+    <p>All outputs are saved inside a <code>synced/</code> subfolder within each participant's folder. <strong>Original files are never modified.</strong></p>
+
+    <div class="folder-tree">
+<span class="f-root">📁 videos_project/</span>
+├── sync_report.csv              <span class="f-note">← auto-generated log</span>
+│
+├── <span class="f-part">📁 IDS003/</span>
+│   ├── <span class="f-mom">IDS003_mom.avi</span>              <span class="f-note">← original, untouched</span>
+│   ├── <span class="f-child">IDS003_child.avi</span>            <span class="f-note">← original, untouched</span>
+│   ├── .sync_done               <span class="f-note">← hidden marker (already processed)</span>
+│   └── <span class="f-part">📁 synced/</span>
+│       ├── <span class="f-out">IDS003_mom_synced.mp4</span>
+│       ├── <span class="f-out">IDS003_child_synced.mp4</span>
+│       └── <span class="f-out">IDS003_side_by_side.mp4</span>
+│
+└── <span class="f-part">📁 IDS004/</span>
+    ├── <span class="f-mom">IDS004_mom.avi</span>
+    └── <span class="f-child">IDS004_child.avi</span>           <span class="f-note">← not yet synced, will be picked up</span>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SETUP -->
+  <div class="section">
+    <div class="section-tag">Setup — one time only</div>
+    <h2>Installing the required tools</h2>
+
+    <div class="os-grid">
+
+      <div class="os-card">
+        <h4>🍎 Mac</h4>
+        <p>Open Terminal (Cmd+Space → Terminal) and run:</p>
+        <div class="code-block">/bin/bash -c "$(curl -fsSL \
+https://raw.githubusercontent.com/\
+Homebrew/install/HEAD/install.sh)"
+
+brew install ffmpeg python3
+
+pip3 install numpy \
+  --break-system-packages</div>
+        <p style="margin-top:8px;">If brew is not found after install, also run:</p>
+        <div class="code-block">echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' \
+>> ~/.zprofile && \
+eval "$(/opt/homebrew/bin/brew shellenv)"</div>
+      </div>
+
+      <div class="os-card">
+        <h4>🪟 Windows</h4>
+        <p>Install these three tools:</p>
+        <p><strong>1. FFmpeg</strong> — download from <code>ffmpeg.org</code> and add to PATH</p>
+        <p><strong>2. Python 3</strong> — download from <code>python.org</code></p>
+        <p><strong>3. numpy</strong> — open Command Prompt and run:</p>
+        <div class="code-block">pip install numpy</div>
+        <p style="margin-top:8px;"><strong>4. Git Bash</strong> — download from <code>gitforwindows.org</code> to run the script</p>
+      </div>
+
+    </div>
+
+    <div class="callout callout-green">
+      <h4>✅ Verify your installation</h4>
+      <p>Open Terminal (Mac) or Git Bash (Windows) and run <code>ffmpeg -version</code> and <code>python3 --version</code>. Both should return version numbers without errors.</p>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- HOW TO RUN -->
+  <div class="section">
+    <div class="section-tag">Running the script</div>
+    <h2>How to use it</h2>
+
+    <p>Save <code>sync_research_project.sh</code> somewhere permanent on your computer (e.g. a <code>Tools/</code> folder). Then make it executable — run this once in Terminal:</p>
+
+    <div class="code-block">chmod +x /path/to/sync_research_project.sh</div>
+
+    <p>Then run it by pointing it at your project folder:</p>
+
+    <div class="code-block"><span class="comment"># Mac / Linux</span>
+<span class="cmd">bash</span> <span class="value">"/path/to/sync_research_project.sh"</span> \
+     <span class="value">"/path/to/your/videos_project"</span>
+
+<span class="comment"># Windows (Git Bash)</span>
+<span class="cmd">bash</span> <span class="value">"/c/Users/you/Tools/sync_research_project.sh"</span> \
+     <span class="value">"/c/Users/you/videos_project"</span></div>
+
+    <p>The script will print progress for each participant and show a popup when complete. Run it again anytime you add new participants — already-synced folders are skipped automatically.</p>
+  </div>
+
+  <hr>
+
+  <!-- WHAT TO CHANGE -->
+  <div class="section">
+    <div class="section-tag">Customization</div>
+    <h2>What you may need to change</h2>
+
+    <p>Open the script in any text editor. The only section you may need to edit is the <strong>Config</strong> block at the top (lines 20–23):</p>
+
+    <div class="code-block"><span class="comment"># ---- Config ----</span>
+MOM_PATTERN=<span class="value">"_mom"</span>       <span class="comment"># change if your mom files use a different suffix</span>
+CHILD_PATTERN=<span class="value">"_child"</span>     <span class="comment"># change if your child files use a different suffix</span>
+SYNCED_MARKER=<span class="value">".sync_done"</span>  <span class="comment"># don't change this</span>
+REPORT_NAME=<span class="value">"sync_report.csv"</span> <span class="comment"># don't change this</span></div>
+
+    <table class="change-table">
+      <tr>
+        <th>Your file naming</th>
+        <th>Set MOM_PATTERN to</th>
+        <th>Set CHILD_PATTERN to</th>
+      </tr>
+      <tr>
+        <td>ID001_mom.avi</td>
+        <td>"_mom" (default)</td>
+        <td>"_child" (default)</td>
+      </tr>
+      <tr>
+        <td>ID001_mae.avi</td>
+        <td>"_mae"</td>
+        <td>"_crianca"</td>
+      </tr>
+      <tr>
+        <td>ID001_madre.avi</td>
+        <td>"_madre"</td>
+        <td>"_nino"</td>
+      </tr>
+      <tr>
+        <td>ID001_mother.avi</td>
+        <td>"_mother"</td>
+        <td>"_infant"</td>
+      </tr>
+      <tr>
+        <td>cam1_ID001.avi</td>
+        <td>"cam1"</td>
+        <td>"cam2"</td>
+      </tr>
+    </table>
+
+    <div class="callout callout-yellow">
+      <h4>⚠️ Important — file naming rules</h4>
+      <p>Each participant must have their own subfolder. Both video files must be inside that subfolder. The pattern you set must appear somewhere in the filename. The participant ID is taken from the folder name, not the filename.</p>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- TIPS -->
+  <div class="section">
+    <div class="section-tag">Best practices</div>
+    <h2>Tips for better sync accuracy</h2>
+
+    <div class="callout callout-blue">
+      <h4>💡 Use a clap at the start of each recording</h4>
+      <p>Have someone clap once loudly in front of both cameras at the start of each session. This creates a sharp audio spike that both microphones record simultaneously, giving the algorithm a perfect reference point. Accuracy improves from ~0.5s to ~0.05s. This is the industry standard and takes one second per session.</p>
+    </div>
+
+    <p style="margin-top:16px;">Other tips:</p>
+    <ul style="color:var(--muted); font-size:0.88rem; padding-left:20px; line-height:2.2;">
+      <li>Keep original AVI files — the script never modifies them</li>
+      <li>If a sync result looks wrong, delete the <code>.sync_done</code> file in that participant's folder and re-run</li>
+      <li>The <code>sync_report.csv</code> file logs every offset — useful for documentation and quality control</li>
+      <li>You can run the script on the same folder from any computer that has access to it (e.g. via OneDrive)</li>
+      <li>Processing time: approximately 3–8 minutes per participant depending on video length and computer speed</li>
+    </ul>
+  </div>
+
+</div>
+
+<div class="footer">
+  Developed for the GPIS Research Group · FURG · Rio Grande, Brazil · 2026
+</div>
+
+</body>
+</html>
