@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Sync — Setup Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: #22222e;
+    --accent: #7b6cff;
+    --accent2: #ff6c9d;
+    --text: #d8d8f0;
+    --muted: #777790;
+    --green: #4affa0;
+  }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 56px 24px;
+    line-height: 1.6;
+  }
+
+  .container { max-width: 700px; margin: 0 auto; }
+
+  header { margin-bottom: 56px; }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: #fff;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+
+  .subtitle { color: var(--muted); font-size: 1rem; }
+
+  /* Output preview */
+  .output-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin: 32px 0 48px;
+  }
+
+  .output-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .output-card .icon { font-size: 1.6rem; margin-bottom: 8px; }
+  .output-card .label { font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; font-family: 'IBM Plex Mono', monospace; }
+  .output-card .name { font-size: 0.85rem; color: #fff; font-weight: 500; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  /* Sections */
+  .section { margin-bottom: 40px; }
+
+  .section-tag {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent2);
+    background: rgba(255,108,157,0.08);
+    border: 1px solid rgba(255,108,157,0.2);
+    border-radius: 4px;
+    padding: 3px 10px;
+    margin-bottom: 20px;
+  }
+
+  h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 16px;
+  }
+
+  /* Steps */
+  .step {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .step-num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(123,108,255,0.12);
+    border: 1px solid rgba(123,108,255,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    margin-top: 2px;
+  }
+
+  .step-content h3 { font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  .step-content p { font-size: 0.88rem; color: var(--muted); }
+
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+    background: #1a1a26;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 8px;
+    font-size: 0.82rem;
+    color: var(--green);
+  }
+
+  .code-block {
+    display: block;
+    padding: 16px 18px;
+    margin: 10px 0;
+    background: #0e0e18;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--text);
+    line-height: 1.8;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* Cowork box */
+  .cowork-box {
+    background: linear-gradient(135deg, rgba(123,108,255,0.08), rgba(255,108,157,0.05));
+    border: 1px solid rgba(123,108,255,0.25);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+
+  .cowork-box .cowork-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .cowork-box p {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .cowork-example {
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 0.9rem;
+    color: #fff;
+    font-style: italic;
+    border-left: 3px solid var(--accent);
+    margin-bottom: 8px;
+  }
+
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-top: 16px;
+    font-size: 0.86rem;
+    color: var(--muted);
+  }
+
+  .note strong { color: #fff; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="eyebrow">Audio Sync Tool</div>
+    <h1>Sync Two Videos<br>by Audio — Automatically</h1>
+    <p class="subtitle">No Adobe Premiere needed. Drop two videos, get three outputs.</p>
+  </header>
+
+  <!-- Output preview -->
+  <div class="output-grid">
+    <div class="output-card">
+      <div class="icon">🎬</div>
+      <div class="label">Output 1</div>
+      <div class="name">camera1_synced.mp4</div>
+    </div>
+    <div class="output-card">
+      <div class="icon">🎬</div>
+      <div class="label">Output 2</div>
+      <div class="name">camera2_synced.mp4</div>
+    </div>
+    <div class="output-card">
+      <div class="icon">🖥️</div>
+      <div class="label">Output 3</div>
+      <div class="name">side_by_side.mp4</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- Setup -->
+  <div class="section">
+    <div class="section-tag">Step 1 — One-time setup</div>
+    <h2>Install the tools</h2>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Open Terminal (Cmd + Space → Terminal)</h3>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Install Homebrew (if not already installed)</h3>
+        <code class="code-block">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"</code>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Install FFmpeg and Python</h3>
+        <code class="code-block">brew install ffmpeg python3</code>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Save the script somewhere permanent</h3>
+        <p>Move <code>sync_videos.sh</code> to a stable location, e.g. your Desktop or a Tools folder. Then make it executable:</p>
+        <code class="code-block">chmod +x /path/to/sync_videos.sh</code>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- Using with Cowork -->
+  <div class="section">
+    <div class="section-tag">Step 2 — Using it with Cowork</div>
+    <h2>Just tell Cowork what you want</h2>
+
+    <div class="cowork-box">
+      <div class="cowork-label">Example prompts you can say to Cowork</div>
+      <div class="cowork-example">"Sync these two videos: /Users/me/Downloads/camera1.mp4 and camera2.mp4 — use the sync_videos.sh script on my Desktop"</div>
+      <div class="cowork-example">"Run sync_videos.sh on the two MP4 files in my Downloads folder"</div>
+      <div class="cowork-example">"Find the two videos I downloaded today and sync them using the script in my Tools folder"</div>
+      <p style="margin-top:12px;">Cowork will locate the files, run the script, and tell you where the outputs were saved — all without you touching Terminal.</p>
+    </div>
+
+    <div class="note">
+      <strong>Tip:</strong> For even faster use, tell Cowork once: <em>"Whenever I ask you to sync videos, use the sync_videos.sh script located at [your path]"</em> — and it will remember for future tasks.
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- How it works -->
+  <div class="section">
+    <div class="section-tag">How it works</div>
+    <h2>What happens under the hood</h2>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Audio extraction</h3>
+        <p>Pulls the audio track from both videos as lightweight WAV files.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Cross-correlation analysis</h3>
+        <p>Compares the two audio tracks mathematically to find the exact moment they match — down to ~10ms precision.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Smart trimming</h3>
+        <p>Whichever video started recording later gets its beginning trimmed so both start at the same audio moment.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Three exports</h3>
+        <p>Two individual synced MP4s + one side-by-side video, all saved in a timestamped folder next to your originals.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>Output folder:</strong> Files are saved in a folder called <code>synced_YYYYMMDD_HHMMSS/</code> right next to your first input video. Your originals are never touched.
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
