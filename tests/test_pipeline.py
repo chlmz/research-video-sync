@@ -507,3 +507,7 @@ def test_stray_json_in_state_dir_is_ignored(cfg, make_participant):
     s = run(cfg)
     assert s.newly_completed == ["ID100392"] and (cfg.state_dir / "notes.json").exists()
     assert not list(cfg.state_dir.glob("*.corrupt-*"))
+    # ... and the stray file must not create a row in the master CSV
+    rows = list(csv.DictReader(cfg.status_csv.open(encoding="utf-8", newline="")))
+    assert [r["participant_id"] for r in rows] == ["ID100392"]
+    assert "notes" not in cfg.status_csv.read_text(encoding="utf-8")

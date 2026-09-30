@@ -34,6 +34,12 @@ from .statuses import S, STICKY, bucket
 log = logging.getLogger("rg2019")
 ROLES = ("mom", "child")
 WOULD_PROCESS = "WOULD_PROCESS"     # dry-run only
+DRY_RUN_OBSERVATION_WARNING = (
+    "dry-run cannot record the stability observation timer (it writes no state), and "
+    "stability_requires_prior_observation=true with stability_minutes={minutes}>0 requires a PREVIOUS real run to "
+    "have seen the files unchanged. New participants will therefore be reported as waiting on every dry-run. "
+    "For a one-off full pilot dry-run you may TEMPORARILY set stability_requires_prior_observation=false in the "
+    "config (dry-run itself stays non-mutating), then restore it before the real/scheduled runs.")
 
 
 @dataclass
@@ -49,6 +55,7 @@ class Outcome:
 class Summary:
     outcomes: list[Outcome] = field(default_factory=list)
     dry_run: bool = False
+    notes: list[str] = field(default_factory=list)      # warnings repeated at the end of the summary
 
     def ids(self, pred: Callable[[Outcome], bool]) -> list[str]:
         return [o.pid for o in self.outcomes if pred(o)]
@@ -101,6 +108,8 @@ class Summary:
         for pid in self.would_process:
             rows.append(f"    [dry-run] {pid}:")
             rows += [f"        - {step}" for step in by[pid].plan]
+        for note in self.notes:
+            rows.append(f"NOTE: {note}")
         rows.append("=" * 64)
         return "\n".join(rows)
 
@@ -116,6 +125,7 @@ class Pipeline:
         self.now = now_fn or (lambda: datetime.now().astimezone())
         self.sleep = sleep_fn
         self.store = StateStore(cfg)
+        self._integrity: dict[str, str | None] = {}   # per-run cache of RAW integrity results
 
     # ------------------------------------------------------------------ helpers
     def _iso(self) -> str:
@@ -172,6 +182,11 @@ class Pipeline:
 
     def run(self) -> Summary:
         summary = Summary(dry_run=self.dry)
+        cfg = self.cfg
+        if self.dry and cfg.stability_requires_prior_observation and cfg.stability_minutes > 0:
+            msg = DRY_RUN_OBSERVATION_WARNING.format(minutes=f"{cfg.stability_minutes:g}")
+            log.warning(msg)
+            summary.notes.append(msg)
         ids, bad = self.candidates()
         for o in bad:
             log.warning("%s -> INVALID_ID: %s", o.pid, o.message)
@@ -199,6 +214,7 @@ class Pipeline:
     def process(self, pid: str) -> Outcome:
         cfg = self.cfg
         inbox, raw, out = cfg.inbox_dir / pid, cfg.raw_dir / pid, cfg.synced_dir / pid
+        self._integrity.pop(pid, None)
         st = self._load(pid)
         st["last_checked_at"] = self._iso()
         payload = self._payload(cfg, inbox) if inbox.is_dir() else []
@@ -239,40 +255,49 @@ class Pipeline:
     def _check_ready(self, st: dict, folder: Path, files: list[Path],
                      marker: bool = True) -> tuple[str, str] | None:
         """None if the folder may be processed, else (status, reason).  The READY marker only exists
-        in INBOX, so RAW-only participants are checked with marker=False."""
+        in INBOX, so RAW-only participants are checked with marker=False.
+
+        Layers (a lower number never depends on a higher one):
+          1. ALWAYS ON, independent of stability_minutes: transfer-in-progress files (.tmp, .partial,
+             .part, .crdownload, .download, .filepart, Synology/editor temp names) block processing.
+          2. stability_minutes > 0 only: file-age rule and prior-observation timer.
+          3. ALWAYS ON while stability_recheck_seconds > 0 (even if stability_minutes == 0): re-stat
+             every file after a short pause to catch a file that is still growing.
+        stability_minutes = 0 therefore disables only layer 2."""
         cfg = self.cfg
         if marker and cfg.require_ready_marker and not (folder / cfg.ready_marker_name).is_file():
             return S.WAITING_FOR_READY, f"{cfg.ready_marker_name} not present yet"
-        if cfg.stability_minutes <= 0:
-            return None
-        if any(is_transit_file(p.name) for p in folder.rglob("*")):
-            return S.WAITING_FOR_STABILITY, "transfer-in-progress file(s) (.tmp/.partial/...) present"
+        transit = sorted(p.name for p in folder.rglob("*") if is_transit_file(p.name))
+        if transit:
+            return S.WAITING_FOR_STABILITY, ("transfer-in-progress file(s) present "
+                                             f"({', '.join(transit[:3])}{', ...' if len(transit) > 3 else ''})")
         if not files:
             return S.WAITING_FOR_STABILITY, "no files yet"
-        now_ts = self.now().timestamp()
         snap = {str(p.relative_to(folder).as_posix()): [p.stat().st_size, p.stat().st_mtime_ns] for p in files}
-        newest = max(p.stat().st_mtime for p in files)
-        window = cfg.stability_minutes * 60
-        if now_ts - newest < window:
-            return S.WAITING_FOR_STABILITY, (f"a file was modified {(now_ts - newest) / 60:.0f} min ago "
-                                             f"(< {cfg.stability_minutes:g} min)")
-        if cfg.stability_requires_prior_observation:
-            prior = st.get("stability") or {}
-            if prior.get("snapshot") != snap:
-                st["stability"] = {"snapshot": snap, "since": self._iso(), "since_ts": now_ts}
-                self._save(st)
-                return S.WAITING_FOR_STABILITY, ("first observation of these files (or they changed since the "
-                                                 "last run); they will be eligible once unchanged for "
-                                                 f"{cfg.stability_minutes:g} min")
-            if now_ts - prior.get("since_ts", now_ts) < window:
-                return S.WAITING_FOR_STABILITY, (f"unchanged for only "
-                                                 f"{(now_ts - prior.get('since_ts', now_ts)) / 60:.0f} min "
+        if cfg.stability_minutes > 0:
+            now_ts = self.now().timestamp()
+            newest = max(p.stat().st_mtime for p in files)
+            window = cfg.stability_minutes * 60
+            if now_ts - newest < window:
+                return S.WAITING_FOR_STABILITY, (f"a file was modified {(now_ts - newest) / 60:.0f} min ago "
                                                  f"(< {cfg.stability_minutes:g} min)")
+            if cfg.stability_requires_prior_observation:
+                prior = st.get("stability") or {}
+                if prior.get("snapshot") != snap:
+                    st["stability"] = {"snapshot": snap, "since": self._iso(), "since_ts": now_ts}
+                    self._save(st)
+                    return S.WAITING_FOR_STABILITY, ("first observation of these files (or they changed since "
+                                                     "the last run); they will be eligible once unchanged for "
+                                                     f"{cfg.stability_minutes:g} min")
+                if now_ts - prior.get("since_ts", now_ts) < window:
+                    return S.WAITING_FOR_STABILITY, (f"unchanged for only "
+                                                     f"{(now_ts - prior.get('since_ts', now_ts)) / 60:.0f} min "
+                                                     f"(< {cfg.stability_minutes:g} min)")
         if cfg.stability_recheck_seconds > 0:
             self.sleep(cfg.stability_recheck_seconds)
             snap2 = {k: [(folder / k).stat().st_size, (folder / k).stat().st_mtime_ns] for k in snap
                      if (folder / k).exists()}
-            if snap2 != snap:
+            if snap2 != snap or any(is_transit_file(p.name) for p in folder.rglob("*")):
                 return S.WAITING_FOR_STABILITY, "files changed during the stability re-check (still syncing?)"
         return None
 
@@ -380,6 +405,25 @@ class Pipeline:
 
     # ------------------------------------------------------------------ RAW branch
     def _sources_intact(self, st: dict, raw: Path) -> str | None:
+        """None if the RAW sources still match what was recorded at ingest, else a reason.
+
+        Cheap daily check: existence + size + mtime_ns (three stat() calls, no reads).
+          * size differs                      -> conflict immediately
+          * size same, mtime_ns differs       -> recompute SHA-256 of THAT file once and compare with the
+                                                 stored hash: different => conflict; identical => content is
+                                                 unchanged, the new mtime_ns is stored in STATE only (RAW is
+                                                 never modified) so the hash is not repeated on later runs.
+        Unchanged files are never re-hashed.  The result is cached per participant for the current
+        run so the same mismatch is not hashed twice.  Limit: an edit that preserves BOTH size and mtime
+        is not detectable without hashing every run."""
+        pid = st["participant_id"]
+        if pid in self._integrity:
+            return self._integrity[pid]
+        result = self._check_sources(st, raw)
+        self._integrity[pid] = result
+        return result
+
+    def _check_sources(self, st: dict, raw: Path) -> str | None:
         for role in ROLES:
             src = st.get("sources", {}).get(role)
             if not src:
@@ -387,8 +431,20 @@ class Pipeline:
             f = raw / src["name"]
             if not f.is_file():
                 return f"{role} source {src['name']} is missing from RAW"
-            if f.stat().st_size != src["size"]:
+            stat = f.stat()
+            if stat.st_size != src["size"]:
                 return f"{role} source {src['name']} size differs from the recorded value"
+            recorded_mtime = src.get("mtime_ns")
+            if recorded_mtime is not None and stat.st_mtime_ns != recorded_mtime:
+                if not src.get("sha256"):
+                    return f"{role} source {src['name']} was modified and has no recorded SHA-256 to verify against"
+                log.info("%s: %s source mtime changed with identical size - verifying SHA-256 once",
+                         st["participant_id"], role)
+                if media.sha256_file(f) != src["sha256"]:
+                    return (f"{role} source {src['name']} content differs from the recorded SHA-256 "
+                            f"(size identical, modified time changed)")
+                src["mtime_ns"] = stat.st_mtime_ns          # content verified: refresh STATE only
+                self._save(st)
         return None
 
     def _outputs_valid(self, st: dict, out: Path) -> bool:

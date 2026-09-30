@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
+from .discovery import valid_participant_id
 
 SCHEMA = 1
 HISTORY_LIMIT = 30
@@ -40,6 +41,7 @@ def new_state(pid: str, now: str) -> dict[str, Any]:
 
 class StateStore:
     def __init__(self, cfg: Config):
+        self.cfg = cfg
         self.dir = cfg.state_dir
         self.csv = cfg.status_csv
 
@@ -68,7 +70,17 @@ class StateStore:
                           json.dumps(st, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
     def all_ids(self) -> list[str]:
-        return sorted(p.stem for p in self.dir.glob("*.json")) if self.dir.exists() else []
+        """Participant ids that have a state file; file names that are not valid participant ids
+        (e.g. a stray notes.json) are ignored."""
+        if not self.dir.exists():
+            return []
+        return sorted(p.stem for p in self.dir.glob("*.json") if valid_participant_id(self.cfg, p.stem))
+
+    def _is_pipeline_state(self, pid: str, st: object) -> bool:
+        """A file only counts as a state record if it is a JSON object written by this pipeline
+        (schema marker), names the participant, and that participant id equals the file name."""
+        return (isinstance(st, dict) and st.get("schema") == SCHEMA
+                and st.get("participant_id") == pid and valid_participant_id(self.cfg, pid))
 
     def rewrite_csv(self) -> None:
         """Regenerate the human-readable master CSV from the state files (one row per participant,
@@ -78,6 +90,8 @@ class StateStore:
             try:
                 st = json.loads(self.path(pid).read_text(encoding="utf-8"))
             except (OSError, ValueError):
+                continue
+            if not self._is_pipeline_state(pid, st):
                 continue
             src, sync = st.get("sources", {}), st.get("sync", {})
             mom, child = src.get("mom", {}), src.get("child", {})

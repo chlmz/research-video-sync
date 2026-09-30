@@ -38,7 +38,14 @@ Daily flow per participant:
   If `01_RAW/IDxxxx` already exists while INBOX also holds material for it -> `RAW_CONFLICT`, nothing is touched.
 * After promotion the code only *opens RAW files for reading* (`ffprobe`, `ffmpeg -i`). It never writes, renames or
   deletes anything in `01_RAW`, and never puts markers/state there (that is why `.sync_done` is gone).
-* Each RAW source's size is recorded; if it later differs, the participant becomes `RAW_CONFLICT` instead of being processed.
+* Each RAW source's size, modified time (`mtime_ns`) and SHA-256 are recorded at ingest. Every run does a cheap check
+  (existence + size + mtime, no file reads):
+  * size differs -> `RAW_CONFLICT` immediately;
+  * size identical but mtime differs -> that one file's SHA-256 is recomputed **once** and compared with the stored hash:
+    different -> `RAW_CONFLICT`; identical -> content is unchanged, the new mtime is recorded **in the state file only**
+    (RAW itself is never modified) so it is not hashed again;
+  * unchanged files are never re-hashed. *Limit:* an edit that preserves both the size **and** the modified time is not
+    detectable by the daily check (it would need hashing every run); the stored SHA-256 is there for manual audit.
 * SHA-256 is computed **once** (in INBOX, before the move) and stored in the state file; it is not recomputed on daily runs.
 * This is protection *by program design*. For protection *by the operating system*, also make `01_RAW` read-only
   for everyone else (NAS/Synology permissions; the shared PC should only ever have read access to RAW).
@@ -68,8 +75,8 @@ notepad config.json
 | `mom_pattern`, `child_pattern` | `_mom`, `_child` | case-insensitive substring of the file name |
 | `video_extensions` | mp4, avi, mov, mkv | |
 | `require_ready_marker` | `false` | if `true`, `00_INBOX/IDxxxx/READY.txt` must exist |
-| `stability_minutes` | `120` | files must be unchanged this long; `0` disables the stability check |
-| `stability_recheck_seconds` | `5` | re-stat files after this pause to catch files still growing |
+| `stability_minutes` | `120` | age rule + prior-observation timer (see below). `0` disables **only those two**: transfer-file blocking and the growth re-check stay active |
+| `stability_recheck_seconds` | `5` | re-stat files after this pause to catch files still growing; active **even when `stability_minutes` is `0`** (set this to `0` to switch it off) |
 | `stability_requires_prior_observation` | `true` | files must also have been seen unchanged by a *previous run* (see below) |
 | `create_side_by_side` | **`false`** | also create `IDxxxx_side_by_side.mp4` (large) |
 | `max_attempts` | `3` | automatic retries for `SYNC_FAILED`/`ENCODE_FAILED` |
@@ -98,18 +105,31 @@ Daily scheduling: [docs/WINDOWS_TASK_SCHEDULER.md](docs/WINDOWS_TASK_SCHEDULER.m
 prints the exact steps that *would* happen. It does not hash, move, extract audio, encode, or write state/CSV/log files.
 (It also cannot know the sync offset before audio analysis, so it reports the encode step generically.)
 
+> **Dry-run and the prior-observation timer.** With the default `stability_requires_prior_observation=true` and
+> `stability_minutes>0`, a new participant must first be *seen unchanged by a previous real run*. A dry-run deliberately
+> writes no state, so it can never record that first observation: repeated dry-runs will keep reporting new participants
+> as waiting ("first observation ..."). The pipeline prints a warning (and repeats it in the summary) when this applies.
+> For a **one-off full pilot dry-run**, temporarily set `"stability_requires_prior_observation": false` in your config -
+> the dry-run itself stays non-mutating - and **restore it to `true` before real/scheduled runs**.
+
 ### Readiness: what "not still synchronising" means
 
-For a participant in INBOX the pipeline waits (`WAITING_FOR_READY` / `WAITING_FOR_STABILITY`) unless:
+For a participant in INBOX the pipeline waits (`WAITING_FOR_READY` / `WAITING_FOR_STABILITY`) unless **all** of these hold:
 
 1. if `require_ready_marker`: `READY.txt` exists (the shared PC should create it **last**);
-2. no `.tmp/.partial/.part/.crdownload/.~*` transfer files are present;
-3. no file was modified in the last `stability_minutes`;
-4. (`stability_requires_prior_observation`) the same file list/sizes/mtimes were already recorded by an earlier run at
-   least `stability_minutes` ago - Synology Drive preserves the original file mtime, so mtime alone cannot show that a
-   download just finished. **With the defaults a new participant is therefore first *seen* on one run and processed on a
-   later run (normally the next day).** Set it to `false` to accept same-day processing using rules 1-3 and 5 only;
-5. sizes and mtimes are identical after the `stability_recheck_seconds` pause.
+2. **always, regardless of `stability_minutes`:** no transfer-in-progress files are present anywhere in the participant
+   folder (`.tmp`, `.partial`, `.part`, `.crdownload`, `.download`, `.filepart`, `.~*`, `~$*`, `.syno*`) - such a file blocks
+   processing and nothing is moved into RAW;
+3. only if `stability_minutes>0`: no file was modified in the last `stability_minutes`;
+4. only if `stability_minutes>0` and `stability_requires_prior_observation`: the same file list/sizes/mtimes were already recorded
+   by an earlier real run at least `stability_minutes` ago - Synology Drive preserves the original file mtime, so mtime alone
+   cannot show that a download just finished. **With the defaults a new participant is therefore first *seen* on one run and
+   processed on a later run (normally the next day).** Set it to `false` to accept same-day processing using the other rules;
+5. **always while `stability_recheck_seconds>0`** (default 5, also when `stability_minutes=0`): sizes and mtimes are identical
+   after that pause, so a file that is still growing is caught. This is the safer behaviour; set `stability_recheck_seconds`
+   to `0` only if you accept that risk.
+
+`stability_minutes=0` therefore disables only rules 3 and 4.
 
 `READY.txt` can reach the workstation *before* large videos finish downloading, so the stability rules still apply when it is required.
 `READY.txt` is removed from INBOX after promotion and is never copied to RAW.
@@ -181,6 +201,7 @@ retro-generate files for completed participants; use `--reprocess` for those you
 ## 7. Troubleshooting
 
 * *`ffmpeg was not found`* - use absolute paths in `config.json` (scheduled tasks often lack your `PATH`).
+* *Participant stays in WAITING in every dry-run* - expected with the default prior-observation rule (dry-run cannot record it); see the dry-run note above.
 * *Participant stays in WAITING* - read the message in `pipeline_status.csv` (`error_message`) or the log; with the default
   settings the first sighting always waits. Lower `stability_minutes`, or set `stability_requires_prior_observation=false`.
 * *`another pipeline run appears to be active`* - a run is in progress or crashed; the lock is replaced automatically after
