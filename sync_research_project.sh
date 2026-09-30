@@ -1,4 +1,15 @@
 #!/bin/bash
+# ============================================================
+#  !!! LEGACY - KEPT FOR HISTORICAL REFERENCE ONLY !!!
+#  Do NOT use this script on the NAS / Synology Drive production workflow.
+#  The production implementation is pipeline_rg2019.py (see README.md).
+#  Known problems (verified by tests/test_legacy_audit.py, see docs/LEGACY_AUDIT.md):
+#   - `set -e` + `((COUNTER++))` aborts the whole batch at the first participant.
+#   - pure-Python fallback (used only if numpy is missing) returns wrong offsets.
+#   - writes .sync_done / outputs INSIDE the participant folder (would pollute 01_RAW).
+#   - picks the first matching file silently; no validation, no confidence check.
+#  (Only this comment block was added; the code below is unchanged.)
+# ============================================================
 
 # ============================================================
 #  sync_research_project.sh

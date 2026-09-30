@@ -1,0 +1,184 @@
+"""Per-participant state files, the master CSV and the run lock.
+
+State lives ONLY under 99_LOGS_QC (never in 01_RAW).  All writes are atomic
+(write temp file in the same folder, then os.replace)."""
+from __future__ import annotations
+
+import csv
+import json
+import os
+import threading
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from .config import Config
+from .discovery import valid_participant_id
+
+SCHEMA = 1
+HISTORY_LIMIT = 30
+
+CSV_COLUMNS = ["participant_id", "status", "mom_source", "child_source", "mom_sha256", "child_sha256",
+               "mom_duration", "child_duration", "offset_seconds", "sync_confidence",
+               "raw_promoted_at", "sync_completed_at", "last_checked_at", "error_message"]
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+
+
+def new_state(pid: str, now: str) -> dict[str, Any]:
+    return {"schema": SCHEMA, "participant_id": pid, "status": None, "message": "", "stage": "NEW",
+            "first_seen_at": now, "last_checked_at": now, "raw_promoted_at": None,
+            "sync_completed_at": None, "attempts": 0, "sources": {}, "promotion": {}, "sync": {},
+            "outputs": {"files": {}}, "stability": {}, "history": []}
+
+
+class StateStore:
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.dir = cfg.state_dir
+        self.csv = cfg.status_csv
+
+    def path(self, pid: str) -> Path:
+        return self.dir / f"{pid}.json"
+
+    def load(self, pid: str, now: str) -> dict[str, Any]:
+        p = self.path(pid)
+        if not p.exists():
+            return new_state(pid, now)
+        try:
+            st = json.loads(p.read_text(encoding="utf-8"))
+            if st.get("participant_id") != pid:
+                raise ValueError("participant_id mismatch")
+            return st
+        except (OSError, ValueError) as exc:
+            bad = p.with_name(p.name + f".corrupt-{now.replace(':', '')}")
+            os.replace(p, bad)
+            st = new_state(pid, now)
+            st["history"].append({"at": now, "event": f"corrupt state file moved to {bad.name}: {exc}"})
+            return st
+
+    def save(self, st: dict[str, Any]) -> None:
+        st["history"] = st.get("history", [])[-HISTORY_LIMIT:]
+        atomic_write_text(self.path(st["participant_id"]),
+                          json.dumps(st, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+
+    def all_ids(self) -> list[str]:
+        """Participant ids that have a state file; file names that are not valid participant ids
+        (e.g. a stray notes.json) are ignored."""
+        if not self.dir.exists():
+            return []
+        return sorted(p.stem for p in self.dir.glob("*.json") if valid_participant_id(self.cfg, p.stem))
+
+    def _is_pipeline_state(self, pid: str, st: object) -> bool:
+        """A file only counts as a state record if it is a JSON object written by this pipeline
+        (schema marker), names the participant, and that participant id equals the file name."""
+        return (isinstance(st, dict) and st.get("schema") == SCHEMA
+                and st.get("participant_id") == pid and valid_participant_id(self.cfg, pid))
+
+    def rewrite_csv(self) -> None:
+        """Regenerate the human-readable master CSV from the state files (one row per participant,
+        so running the pipeline many times can never create duplicate rows)."""
+        rows = []
+        for pid in self.all_ids():
+            try:
+                st = json.loads(self.path(pid).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not self._is_pipeline_state(pid, st):
+                continue
+            src, sync = st.get("sources", {}), st.get("sync", {})
+            mom, child = src.get("mom", {}), src.get("child", {})
+            rows.append({
+                "participant_id": pid, "status": st.get("status"),
+                "mom_source": mom.get("name", ""), "child_source": child.get("name", ""),
+                "mom_sha256": mom.get("sha256", ""), "child_sha256": child.get("sha256", ""),
+                "mom_duration": _fmt(mom.get("media", {}).get("duration")),
+                "child_duration": _fmt(child.get("media", {}).get("duration")),
+                "offset_seconds": _fmt(sync.get("offset_seconds"), 4),
+                "sync_confidence": _fmt(sync.get("confidence"), 3),
+                "raw_promoted_at": st.get("raw_promoted_at") or "",
+                "sync_completed_at": st.get("sync_completed_at") or "",
+                "last_checked_at": st.get("last_checked_at") or "",
+                "error_message": st.get("message") if st.get("status") != "SUCCESS" else ""})
+        import io
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, lineterminator="\r\n")
+        w.writeheader()
+        w.writerows(rows)
+        atomic_write_text(self.csv, buf.getvalue())
+
+
+def _fmt(v, nd=2):
+    return "" if v is None else (f"{v:.{nd}f}" if isinstance(v, (int, float)) else str(v))
+
+
+class RunLock:
+    """Prevents two daily runs from overlapping (e.g. a long run + the next scheduled trigger).
+
+    A live run keeps the lock "fresh" with a heartbeat: a daemon thread touches the lock file's
+    modified time every min(60 s, lock_stale_hours/4).  A lock is only considered abandoned when its
+    mtime has NOT been refreshed for `stale_hours`, i.e. the owning process died (a dead process
+    cannot heartbeat; the daemon thread dies with it).  A legitimate run of any length is therefore
+    never taken over, and a crashed run is still recovered automatically."""
+
+    def __init__(self, path: Path, stale_hours: float):
+        self.path, self.stale = path, timedelta(hours=stale_hours)
+        self.interval = max(0.2, min(60.0, stale_hours * 3600 / 4))
+        self.held = False
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _heartbeat(self) -> None:
+        while not self._stop.wait(self.interval):
+            try:
+                os.utime(self.path)
+            except OSError:
+                pass
+
+    def acquire(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        for _ in range(2):
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    age = datetime.now() - datetime.fromtimestamp(self.path.stat().st_mtime)
+                except FileNotFoundError:          # released between our two calls: just retry
+                    continue
+                if age < self.stale:
+                    raise RuntimeError(f"another pipeline run appears to be active (lock {self.path}, last "
+                                       f"heartbeat {age} ago); if it crashed, delete the lock file")
+                self.path.unlink(missing_ok=True)   # no heartbeat for stale_hours: owner is dead
+                continue
+            with os.fdopen(fd, "w") as fh:
+                fh.write(f"pid={os.getpid()} started={datetime.now().isoformat(timespec='seconds')}\n")
+            self.held = True
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._heartbeat, name="rg2019-lock-heartbeat", daemon=True)
+            self._thread.start()
+            return
+        raise RuntimeError(f"could not acquire lock {self.path}")
+
+    def release(self) -> None:
+        if self.held:
+            self._stop.set()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
+                self._thread = None
+            self.path.unlink(missing_ok=True)
+            self.held = False
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()

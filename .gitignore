@@ -1,0 +1,99 @@
+# =====================================================================
+# THIS REPOSITORY IS PUBLIC.  Research data must NEVER be committed.
+# Tests generate their own synthetic fixtures at run time; nothing
+# binary/sample needs to be committed.
+# =====================================================================
+
+# ---- video / audio ---------------------------------------------------
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.m4v
+*.wmv
+*.mts
+*.wav
+*.flac
+*.aac
+*.mp3
+*.m4a
+*.pcm
+*.raw
+
+# ---- data / tables / logs --------------------------------------------
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.dta
+*.sav
+*.rds
+*.rdata
+*.parquet
+*.jsonl
+*.log
+
+# ---- same extensions, any letter case (e.g. IMG_0001.MP4 from a camera) ----
+*.[mM][pP]4
+*.[aA][vV][iI]
+*.[mM][oO][vV]
+*.[mM][kK][vV]
+*.[mM]4[vV]
+*.[wW][mM][vV]
+*.[mM][tT][sS]
+*.[wW][aA][vV]
+*.[fF][lL][aA][cC]
+*.[aA][aA][cC]
+*.[mM][pP]3
+*.[mM]4[aA]
+*.[cC][sS][vV]
+*.[tT][sS][vV]
+*.[xX][lL][sS][xX]
+*.[xX][lL][sS]
+*.[dD][tT][aA]
+*.[sS][aA][vV]
+*.[jJ][sS][oO][nN][lL]
+*.[lL][oO][gG]
+
+# ---- study folder layout (if the repo is ever cloned inside the project) ----
+00_INBOX/
+01_RAW/
+02_SYNCED/
+03_WORKSPACE/
+04_FACEREADER_OUTPUT/
+05_ANALYTIC_DATA/
+99_LOGS_QC/
+MASTER_QC/
+FOLLOWUP_*/
+# participant folders, e.g. ID100392/
+ID[0-9]*/
+
+# ---- pipeline runtime state ------------------------------------------
+state/
+*.lock
+*.partial
+*.tmp
+*.corrupt-*
+_superseded_*/
+
+# ---- machine-specific configuration (commit only config.example.json) --
+config.json
+config.local.json
+config.*.json
+!config.example.json
+.env
+.env.*
+*.pem
+*.key
+
+# ---- python / editors / OS ---------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

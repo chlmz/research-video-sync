@@ -1,4 +1,13 @@
 #!/bin/bash
+# ============================================================
+#  !!! LEGACY - KEPT FOR HISTORICAL REFERENCE ONLY !!!
+#  Do NOT use this script on the NAS / Synology Drive production workflow.
+#  The production implementation is pipeline_rg2019.py (see README.md).
+#  Known problems (verified by tests/test_legacy_audit.py, see docs/LEGACY_AUDIT.md):
+#   - export logic trims the WRONG camera (positive offset trims video2, but video1 holds the lead-in).
+#   - pure-Python O(lags x window) estimator, first 60 s only, no confidence check.
+#  (Only this comment block was added; the code below is unchanged.)
+# ============================================================
 
 # ============================================================
 #  sync_videos.sh — Audio-based Video Sync Tool
