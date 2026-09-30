@@ -80,7 +80,7 @@ notepad config.json
 | `stability_requires_prior_observation` | `true` | files must also have been seen unchanged by a *previous run* (see below) |
 | `create_side_by_side` | **`false`** | also create `IDxxxx_side_by_side.mp4` (large) |
 | `max_attempts` | `3` | automatic retries for `SYNC_FAILED`/`ENCODE_FAILED` |
-| `sync.*` | see file | sample rate (8000 Hz), `max_lag_seconds` (120), window length (60 s), thresholds |
+| `sync.*` | see file | sample rate (8000 Hz), `max_lag_seconds` (120), window length (60 s), thresholds; `min_agreeing_windows` must not exceed `fine_windows` |
 | `encode.*` | `fast`, CRF 20, 192k | x264 preset/CRF, AAC bitrate, `copy_untrimmed_when_possible` |
 | `ffmpeg`, `ffprobe` | `ffmpeg`, `ffprobe` | names on `PATH` or absolute paths |
 
@@ -125,8 +125,9 @@ For a participant in INBOX the pipeline waits (`WAITING_FOR_READY` / `WAITING_FO
    by an earlier real run at least `stability_minutes` ago - Synology Drive preserves the original file mtime, so mtime alone
    cannot show that a download just finished. **With the defaults a new participant is therefore first *seen* on one run and
    processed on a later run (normally the next day).** Set it to `false` to accept same-day processing using the other rules;
-5. **always while `stability_recheck_seconds>0`** (default 5, also when `stability_minutes=0`): sizes and mtimes are identical
-   after that pause, so a file that is still growing is caught. This is the safer behaviour; set `stability_recheck_seconds`
+5. **always while `stability_recheck_seconds>0`** (default 5, also when `stability_minutes=0`): the list of files, their sizes and
+   mtimes are identical after that pause (files that *appear or disappear* during the pause count as changes), so a file that is
+   still growing or arriving is caught. This is the safer behaviour; set `stability_recheck_seconds`
    to `0` only if you accept that risk.
 
 `stability_minutes=0` therefore disables only rules 3 and 4.
@@ -151,8 +152,10 @@ the same real-world moment. Outputs are not cut at the end (the two files may di
 Estimator (details in `rg2019/syncest.py`): mono audio is decoded by ffmpeg at 8 kHz to a temp file and memory-mapped
 (RAM use is one analysis window, not the whole recording). *Coarse stage*: 7 windows spread over the recording are
 matched (normalised cross-correlation via FFT) against the other file within +-`max_lag_seconds`; a cluster of agreeing
-windows gives the coarse offset. *Fine stage*: 5 windows spread over the whole overlap, searched +-2 s, sub-sample
-interpolation, median. **SUCCESS requires** >= 3 fine windows (>= 60 %) agreeing within 0.25 s, each with a clear correlation
+windows gives the coarse offset. *Fine stage*: 5 windows spread over the whole overlap (inset by the +-2 s search range so every window lies inside both files), searched +-2 s,
+sub-sample interpolation, median. Windows must be **distinct** (start >= half a window apart); if the aligned overlap is too short
+to hold enough distinct windows the result is `LOW_CONFIDENCE`, never a success built from repeated copies of one window.
+**SUCCESS requires** >= `min_agreeing_windows` (3) distinct fine windows (>= 60 %) agreeing within 0.25 s, each with a clear correlation
 peak (NCC >= 0.05, peak >= 1.5x any competing peak), and a coarse consensus. Otherwise `LOW_CONFIDENCE` (no videos are made).
 `sync_confidence` = median NCC of the agreeing windows x fraction agreeing (0-1). The per-window results and the
 spread (max-min of the window offsets, a clock-drift indicator) are stored in the state file.
@@ -196,7 +199,9 @@ python pipeline_rg2019.py --config config.json --participant ID100392 --reproces
 To re-run after fixing a problem that is not a sync problem (e.g. a moved conflicting file) no flag is needed.
 Never edit `01_RAW`. Do not delete state files casually: without state a finished participant has un-recorded outputs
 and becomes `OUTPUT_CONFLICT` (safe, but needs a manual step). Turning `create_side_by_side` on later does **not**
-retro-generate files for completed participants; use `--reprocess` for those you want.
+retro-generate files for completed participants; use `--reprocess` for those you want. Once a side-by-side file has been
+created and `create_side_by_side` is on, it is part of the completion check: if it is later deleted it is regenerated from the
+synced videos on the next run; if it exists but differs from the recorded size it is flagged `OUTPUT_CONFLICT` and never overwritten.
 
 ## 7. Troubleshooting
 
@@ -204,8 +209,10 @@ retro-generate files for completed participants; use `--reprocess` for those you
 * *Participant stays in WAITING in every dry-run* - expected with the default prior-observation rule (dry-run cannot record it); see the dry-run note above.
 * *Participant stays in WAITING* - read the message in `pipeline_status.csv` (`error_message`) or the log; with the default
   settings the first sighting always waits. Lower `stability_minutes`, or set `stability_requires_prior_observation=false`.
-* *`another pipeline run appears to be active`* - a run is in progress or crashed; the lock is replaced automatically after
-  `lock_stale_hours`; otherwise delete `99_LOGS_QC\pipeline.lock` once you are sure nothing is running.
+* *`another pipeline run appears to be active`* - a run is in progress or crashed. A live run refreshes the lock's modified time
+  every minute (heartbeat), so a long batch is never taken over, however long it runs. A lock whose heartbeat stopped
+  (crashed run) is replaced automatically after `lock_stale_hours`; otherwise delete `99_LOGS_QC\pipeline.lock` once you are sure
+  nothing is running.
 * *`PROMOTE_FAILED`* - a file was open/locked (Synology Drive, antivirus); just re-run. INBOX and RAW must be on one volume.
 * *`LOW_CONFIDENCE`* - inspect `99_LOGS_QC\state\IDxxxx.json` (`sync.details`): quiet recordings, camera mics far apart,
   an offset larger than `max_lag_seconds`. Play both videos, decide, use `--manual-offset`.

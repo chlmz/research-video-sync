@@ -154,6 +154,17 @@ class Pipeline:
                 if p.name != cfg.ready_marker_name and not is_junk_file(p.name)
                 and not (p.is_dir() and is_ignored_dir(p.name))]
 
+    @staticmethod
+    def _snapshot(folder: Path, files: list[Path]) -> dict:
+        snap = {}
+        for p in files:
+            try:
+                stt = p.stat()
+            except OSError:            # vanished between listing and stat: the next comparison will differ
+                continue
+            snap[str(p.relative_to(folder).as_posix())] = [stt.st_size, stt.st_mtime_ns]
+        return snap
+
     def _files_under(self, folder: Path) -> list[Path]:
         return [p for p in sorted(folder.rglob("*"))
                 if p.is_file() and p.name != self.cfg.ready_marker_name and not is_junk_file(p.name)]
@@ -273,7 +284,7 @@ class Pipeline:
                                              f"({', '.join(transit[:3])}{', ...' if len(transit) > 3 else ''})")
         if not files:
             return S.WAITING_FOR_STABILITY, "no files yet"
-        snap = {str(p.relative_to(folder).as_posix()): [p.stat().st_size, p.stat().st_mtime_ns] for p in files}
+        snap = self._snapshot(folder, files)
         if cfg.stability_minutes > 0:
             now_ts = self.now().timestamp()
             newest = max(p.stat().st_mtime for p in files)
@@ -295,9 +306,8 @@ class Pipeline:
                                                      f"(< {cfg.stability_minutes:g} min)")
         if cfg.stability_recheck_seconds > 0:
             self.sleep(cfg.stability_recheck_seconds)
-            snap2 = {k: [(folder / k).stat().st_size, (folder / k).stat().st_mtime_ns] for k in snap
-                     if (folder / k).exists()}
-            if snap2 != snap or any(is_transit_file(p.name) for p in folder.rglob("*")):
+            snap2 = self._snapshot(folder, self._files_under(folder))   # ALL current files: additions and
+            if snap2 != snap or any(is_transit_file(p.name) for p in folder.rglob("*")):   # removals count too
                 return S.WAITING_FOR_STABILITY, "files changed during the stability re-check (still syncing?)"
         return None
 
@@ -449,8 +459,11 @@ class Pipeline:
 
     def _outputs_valid(self, st: dict, out: Path) -> bool:
         files = st.get("outputs", {}).get("files", {})
-        for role in ROLES:
-            rec = files.get(role)
+        keys = list(ROLES)
+        if self.cfg.create_side_by_side and "side_by_side" in files:
+            keys.append("side_by_side")       # expected AND recorded: must still be intact
+        for key in keys:
+            rec = files.get(key)
             f = out / rec["name"] if rec else None
             if not rec or not f.is_file() or f.stat().st_size != rec["size"]:
                 return False
@@ -573,10 +586,13 @@ class Pipeline:
                     return Outcome(pid, S.OUTPUT_CONFLICT, st["message"])
             if cfg.create_side_by_side:
                 final = out / f"{pid}_side_by_side.mp4"
-                if "side_by_side" not in files:
-                    if final.exists():
-                        return self._fail(st, S.OUTPUT_CONFLICT, f"{final.name} exists but is not recorded")
-                    part = final.with_name(final.name + ".partial")
+                rec = files.get("side_by_side")
+                if not (rec and final.is_file() and final.stat().st_size == rec["size"]):
+                    if final.exists():       # unrecorded or truncated/modified: never overwrite
+                        return self._fail(st, S.OUTPUT_CONFLICT,
+                                          f"{final.name} exists in 02_SYNCED but does not match the recorded "
+                                          f"state; not overwriting. Move/rename it and re-run.")
+                    part = final.with_name(final.name + ".partial")   # missing (or never made): (re)create
                     media.side_by_side(cfg, out / files["mom"]["name"], out / files["child"]["name"], part)
                     self._commit(cfg, part, final, files, "side_by_side", None, "reencode")
                     self._save(st)

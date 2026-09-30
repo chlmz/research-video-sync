@@ -129,6 +129,9 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
         re.compile(cfg.participant_id_regex)
     except re.error as exc:
         raise ConfigError(f"participant_id_regex is not a valid regex: {exc}") from exc
+    if cfg.sync.min_agreeing_windows > cfg.sync.fine_windows:
+        raise ConfigError(f"sync.min_agreeing_windows ({cfg.sync.min_agreeing_windows}) cannot exceed "
+                          f"sync.fine_windows ({cfg.sync.fine_windows})")
     if not cfg.mom_pattern or not cfg.child_pattern:
         raise ConfigError("mom_pattern and child_pattern must be non-empty")
     if cfg.mom_pattern.lower() == cfg.child_pattern.lower():

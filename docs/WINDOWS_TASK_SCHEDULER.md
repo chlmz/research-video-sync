@@ -99,7 +99,7 @@ then open today's file in `99_LOGS_QC\logs`. To switch it off: `schtasks /Change
 
 * Start with a **dry-run task** (add `--dry-run` to the arguments) for a few days and read what it *would* do.
 * If a run crashes or the PC loses power, just let the next run happen: interrupted work resumes.
-  A stale `99_LOGS_QC\pipeline.lock` (older than `lock_stale_hours`, default 24 h) is replaced automatically;
+  A run keeps `99_LOGS_QC\pipeline.lock` fresh with a heartbeat, so a long backlog is never taken over by the next scheduled start; a lock that has not been refreshed for `lock_stale_hours` (default 24 h, i.e. the run crashed) is replaced automatically;
   if you are sure nothing is running and want to run sooner, delete that one file.
 * In Synology Drive Client you may exclude `*.partial` and `*.tmp` from syncing so half-written videos are not uploaded.
 * Windows Update reboots and sleep can interrupt a run; that is safe, but choose a time outside your update window.

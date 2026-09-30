@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -120,11 +121,27 @@ def _fmt(v, nd=2):
 
 
 class RunLock:
-    """Prevents two daily runs from overlapping (e.g. a long run + the next scheduled trigger)."""
+    """Prevents two daily runs from overlapping (e.g. a long run + the next scheduled trigger).
+
+    A live run keeps the lock "fresh" with a heartbeat: a daemon thread touches the lock file's
+    modified time every min(60 s, lock_stale_hours/4).  A lock is only considered abandoned when its
+    mtime has NOT been refreshed for `stale_hours`, i.e. the owning process died (a dead process
+    cannot heartbeat; the daemon thread dies with it).  A legitimate run of any length is therefore
+    never taken over, and a crashed run is still recovered automatically."""
 
     def __init__(self, path: Path, stale_hours: float):
         self.path, self.stale = path, timedelta(hours=stale_hours)
+        self.interval = max(0.2, min(60.0, stale_hours * 3600 / 4))
         self.held = False
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _heartbeat(self) -> None:
+        while not self._stop.wait(self.interval):
+            try:
+                os.utime(self.path)
+            except OSError:
+                pass
 
     def acquire(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,20 +149,30 @@ class RunLock:
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
-                age = datetime.now() - datetime.fromtimestamp(self.path.stat().st_mtime)
+                try:
+                    age = datetime.now() - datetime.fromtimestamp(self.path.stat().st_mtime)
+                except FileNotFoundError:          # released between our two calls: just retry
+                    continue
                 if age < self.stale:
-                    raise RuntimeError(f"another pipeline run appears to be active (lock {self.path}, "
-                                       f"age {age}); if it crashed, delete the lock file")
-                self.path.unlink(missing_ok=True)   # stale lock from a crashed run
+                    raise RuntimeError(f"another pipeline run appears to be active (lock {self.path}, last "
+                                       f"heartbeat {age} ago); if it crashed, delete the lock file")
+                self.path.unlink(missing_ok=True)   # no heartbeat for stale_hours: owner is dead
                 continue
             with os.fdopen(fd, "w") as fh:
                 fh.write(f"pid={os.getpid()} started={datetime.now().isoformat(timespec='seconds')}\n")
             self.held = True
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._heartbeat, name="rg2019-lock-heartbeat", daemon=True)
+            self._thread.start()
             return
         raise RuntimeError(f"could not acquire lock {self.path}")
 
     def release(self) -> None:
         if self.held:
+            self._stop.set()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
+                self._thread = None
             self.path.unlink(missing_ok=True)
             self.held = False
 

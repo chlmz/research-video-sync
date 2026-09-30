@@ -25,7 +25,7 @@ Stage 1 (coarse): ``coarse_windows`` windows of the mother audio spread over the
     each searched in the child audio within +-max_lag.  Windows are accepted only if their
     normalised correlation peak (NCC) and peak-to-competing-peak ratio pass thresholds; the
     largest cluster of agreeing windows gives the coarse offset.
-Stage 2 (fine): ``fine_windows`` windows are spread over the whole *overlap* implied by the
+Stage 2 (fine): up to ``fine_windows`` DISTINCT windows (start positions >= half a window apart) are spread over the whole *overlap* implied by the
     coarse offset and searched only +-fine_search_seconds around it, with parabolic sub-sample
     interpolation.  The final offset is the median of the agreeing windows.
 Only one window (<= max_lag*2 + window seconds) is ever held in RAM as float64; the full
@@ -33,7 +33,7 @@ audio stays on disk as a memory map.  Fully deterministic (no randomness).
 
 CONFIDENCE RULE (SUCCESS requires ALL of):
     * stage 1 found a coarse cluster of >= 2 valid windows,
-    * >= min_agreeing_windows stage-2 windows agree within fine_tolerance_seconds of the median,
+    * >= min_agreeing_windows DISTINCT stage-2 windows agree within fine_tolerance_seconds of the median,
     * agreeing windows / stage-2 windows >= min_agree_fraction,
     * median NCC of the agreeing windows >= min_ncc.
 Otherwise the result is LOW_CONFIDENCE and must be reviewed by a human.
@@ -149,6 +149,24 @@ def _window(mom: np.ndarray, child: np.ndarray, rate: int, p: int, w: int,
     return WindowResult(stage, pos, float(offset), peak, ratio, valid, note)
 
 
+MIN_WINDOW_SPACING = 0.5      # distinct windows start at least half a window apart (<= 50 % overlap)
+
+
+def _positions(a: int, b: int, n: int, w: int) -> list[int]:
+    """Start positions (samples) of up to `n` analysis windows spread evenly over [a, b].
+
+    Positions closer than MIN_WINDOW_SPACING * w to an already kept one are dropped, so identical or
+    near-identical windows (e.g. when the region is no longer than one window and linspace would
+    repeat the same start) are never counted as independent evidence."""
+    if n <= 1 or b <= a:
+        return [(a + b) // 2]
+    kept: list[int] = []
+    for p in np.linspace(a, b, n).astype(int):
+        if not kept or p - kept[-1] >= MIN_WINDOW_SPACING * w:
+            kept.append(int(p))
+    return kept
+
+
 def _largest_cluster(vals: list[float], tol: float) -> list[int]:
     best: list[int] = []
     for i, v in enumerate(vals):
@@ -178,8 +196,7 @@ def estimate_offset(mom: np.ndarray, child: np.ndarray, prm: SyncParams,
     # file for some |offset| <= max_lag, i.e. p <= len(child) - w + L.  Spread the windows evenly over
     # that range (whole file when durations are similar; no part is favoured for +/- offsets).
     hi = max(0, min(mom.size - w, child.size - w + L))
-    n1 = max(1, prm.coarse_windows)
-    pos1 = np.linspace(0, hi, n1).astype(int) if n1 > 1 else np.array([hi // 2])
+    pos1 = _positions(0, hi, max(1, prm.coarse_windows), w)
     coarse = [_window(mom, child, rate, int(p), w, -prm.max_lag_seconds, prm.max_lag_seconds, 1, prm)
               for p in pos1]
     valid1 = [r for r in coarse if r.valid]
@@ -194,15 +211,18 @@ def estimate_offset(mom: np.ndarray, child: np.ndarray, prm: SyncParams,
     est.coarse_offset_seconds = coarse_off + shift
 
     # ---------------- stage 2: fine, over the whole overlap -----------------
-    ov_lo = max(0.0, coarse_off)                    # mother-time interval that has a child partner
-    ov_hi = min(dur_m, dur_c + coarse_off)
+    # Mother-time interval that has a child partner, inset by fine_search_seconds at both ends so every
+    # fine window (template) lies fully inside BOTH files for any true offset within coarse +- search.
+    # (Without the inset a window starting exactly at the overlap edge can begin a sample before the
+    # child file starts and correlate badly.)
+    ov_lo = max(0.0, coarse_off) + prm.fine_search_seconds
+    ov_hi = min(dur_m, dur_c + coarse_off) - prm.fine_search_seconds
     if ov_hi - ov_lo < prm.min_overlap_seconds:
         est.reason = f"overlap after coarse alignment too short ({max(0.0, ov_hi - ov_lo):.1f}s)"
         return est
     w2 = int(min(prm.window_seconds, ov_hi - ov_lo) * rate)
     a, b = int(ov_lo * rate), max(int(ov_lo * rate), int(ov_hi * rate) - w2)
-    n2 = max(1, prm.fine_windows)
-    pos2 = np.linspace(a, b, n2).astype(int) if n2 > 1 else np.array([(a + b) // 2])
+    pos2 = _positions(a, b, max(1, prm.fine_windows), w2)
     fine = [_window(mom, child, rate, int(p), w2, coarse_off - prm.fine_search_seconds,
                     coarse_off + prm.fine_search_seconds, 2, prm) for p in pos2]
     est.windows += fine
@@ -222,8 +242,10 @@ def estimate_offset(mom: np.ndarray, child: np.ndarray, prm: SyncParams,
     est.offset_spread_seconds = float(max(offs) - min(offs))
     est.confidence = float(est.median_ncc * len(agree) / len(fine))
 
-    need = min(prm.min_agreeing_windows, len(fine))
+    need = prm.min_agreeing_windows            # counted over DISTINCT windows; never lowered for short overlaps
     problems = []
+    if len(fine) < need:
+        problems.append(f"overlap too short for {need} distinct analysis windows (only {len(fine)} fit)")
     if len(agree) < need:
         problems.append(f"only {len(agree)}/{len(fine)} windows agree (need >= {need})")
     if len(agree) / len(fine) < prm.min_agree_fraction:
