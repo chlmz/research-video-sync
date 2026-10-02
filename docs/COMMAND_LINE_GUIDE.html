@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Video sync command-line guide</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Video sync command-line guide</h1>
+</header>
+<h1
+id="beginners-guide-running-the-video-sync-tool-from-the-command-line">Beginner's
+guide: running the video-sync tool from the command line</h1>
+<p>This guide is for Windows users who want to run the video-sync
+pipeline from a terminal after getting its code from GitHub. The
+production tool is <code>pipeline_rg2019.py</code>. <strong>Do not run
+the <code>.sh</code> scripts</strong>; they are legacy scripts and are
+not for the current workflow.</p>
+<p>The pipeline moves original videos from <code>00_INBOX</code> into
+<code>01_RAW</code>, then creates synchronized outputs under
+<code>02_SYNCED</code>. Treat a real run as a file operation, not just a
+preview.</p>
+<h2 id="1-prerequisites">1. Prerequisites</h2>
+<p>Install these before running the pipeline:</p>
+<table>
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Why it is needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Git for Windows</strong></td>
+<td>Downloads (clones) the project from GitHub.</td>
+</tr>
+<tr>
+<td><strong>Python 3.10 or newer</strong></td>
+<td>Runs the pipeline. During installation, enable the option to add
+Python to <code>PATH</code> if offered.</td>
+</tr>
+<tr>
+<td><strong>FFmpeg, including <code>ffprobe</code></strong></td>
+<td>Reads and encodes the video and audio. The FFmpeg build must support
+<code>libx264</code> and AAC.</td>
+</tr>
+</tbody>
+</table>
+<p>Install Git and Python from their official websites, and install
+FFmpeg using your organization's approved method. The commands below use
+Windows Command Prompt. Open a new Command Prompt after installing, then
+check that Git and Python are available:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bat"><code class="sourceCode dosbat"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>git -<span class="at">-version</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>python -<span class="at">-version</span></span></code></pre></div>
+<p>Python should report version 3.10 or newer. If either command is not
+recognized, install the missing program or correct its <code>PATH</code>
+before continuing. FFmpeg and <code>ffprobe</code> must also be
+available on <code>PATH</code>, or their full paths must be set in the
+configuration file.</p>
+<blockquote>
+<p>If you encounter platform-specific problems, check the
+troubleshooting section below and the project README.</p>
+</blockquote>
+<h2 id="2-get-the-project-from-github">2. Get the project from
+GitHub</h2>
+<p>Choose a folder where you want to keep the program, open Command
+Prompt, and run:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bat"><code class="sourceCode dosbat"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>git clone https:/<span class="at">/github</span>.com<span class="at">/chmlz/research-video-sync</span>.git</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> research<span class="at">-video-sync</span></span></code></pre></div>
+<p>or</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bat"><code class="sourceCode dosbat"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>git clone https:/<span class="at">/github</span>.com<span class="at">/sgbstats/research-video-sync</span>.git</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> research<span class="at">-video-sync</span></span></code></pre></div>
+<p>If the repository is <strong>already cloned</strong>, do not clone it
+again; open Command Prompt and change to that existing
+<code>research-video-sync</code> folder instead.</p>
+<h2 id="3-install-the-python-packages">3. Install the Python
+packages</h2>
+<p>From the repository folder, run:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bat"><code class="sourceCode dosbat"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>python <span class="at">-m</span> pip install <span class="at">-r</span> requirements.txt</span></code></pre></div>
+<p>This installs the required NumPy and SciPy packages. If
+<code>python</code> is not recognized but the Python launcher is
+installed, try using <code>py</code> in place of <code>python</code> in
+the commands in this guide.</p>
+<h2 id="4-set-up-your-configuration">4. Set up your configuration</h2>
+<p>Create a local configuration and the default follow-up folder
+structure in one step:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bat"><code class="sourceCode dosbat"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>python pipeline_rg2019.py -<span class="at">-setup</span> <span class="st">&quot;D:\RG2019_CAMERAS\FOLLOWUP_2026&quot;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>notepad config.json</span></code></pre></div>
+<p><code>--setup</code> copies the project defaults into
+<code>config.json</code>, sets <code>followup_root</code> to the
+supplied path, and creates the configured folders if missing. An
+absolute path is recommended. If the config already exists, setup asks
+before replacing it; answering <code>yes</code> continues folder
+creation, while any other response cancels without changes. You can
+choose a different config destination with <code>--config</code>, for
+example
+<code>python pipeline_rg2019.py --setup "D:\RG2019_CAMERAS\FOLLOWUP_2026" --config "D:\settings\rg2019.json"</code>.</p>
+<p>If setting up manually instead, set <code>followup_root</code> in
+<code>config.json</code> to the full path of your actual project data
+folder. For example:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;followup_root&quot;</span><span class="er">:</span> <span class="st">&quot;D:</span><span class="ch">\\</span><span class="st">RG2019_CAMERAS</span><span class="ch">\\</span><span class="st">FOLLOWUP_2026&quot;</span></span></code></pre></div>
+<p>Use your own correct path; the example path is not a real location.
+The project folder should contain <code>00_INBOX</code>, where incoming
+participant folders arrive. By default, the pipeline also uses
+<code>01_RAW</code>, <code>02_SYNCED</code>, and <code>99_LOGS_QC</code>
+beneath that root. If FFmpeg is not on <code>PATH</code>, edit the
+<code>ffmpeg</code> and <code>ffprobe</code> settings to their full
+executable paths.</p>
+<p>Keep <code>config.json</code> private to your machine. It is
+intentionally excluded from Git; only the example configuration should
+be committed.</p>
+<p>Set <code>"video_description": null</code> (default) to keep names
+such as <code>ID100392_mom_synced.mp4</code>, or set a filename-safe
+label such as <code>"pilot visit"</code> to write
+<code>ID100392_pilot_visit_mom_synced.mp4</code> (also applied to child
+and side-by-side outputs). Changing it for completed pairs requires
+<code>--reprocess</code> to archive old outputs.
+<code>"require_approval": true</code> (default) prompts for
+<code>yes</code> before a real run; setting it to <code>false</code>
+skips the prompt but retains the report.</p>
+<h3 id="configuration-reference">Configuration reference</h3>
+<p>The keys below are the complete set accepted by the current Python
+pipeline. Defaults are used when a key is omitted;
+<code>followup_root</code> is required. <code>config.example.json</code>
+shows a shorter configuration because it omits some settings that
+already have defaults. Unknown keys (except keys beginning with
+<code>_</code>, used for comments) are rejected.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>followup_root</code></td>
+<td>Required</td>
+<td>Folder containing the INBOX, RAW, SYNCED and log folders. Use an
+absolute path; escape backslashes in JSON.</td>
+</tr>
+<tr>
+<td><code>inbox</code></td>
+<td><code>00_INBOX</code></td>
+<td>Incoming originals.</td>
+</tr>
+<tr>
+<td><code>raw</code></td>
+<td><code>01_RAW</code></td>
+<td>Preserved originals; must be on the same volume as INBOX. Do not
+edit files here.</td>
+</tr>
+<tr>
+<td><code>synced</code></td>
+<td><code>02_SYNCED</code></td>
+<td>Synchronized output videos.</td>
+</tr>
+<tr>
+<td><code>logs_qc</code></td>
+<td><code>99_LOGS_QC</code></td>
+<td>State files, CSV, logs and the run lock.</td>
+</tr>
+<tr>
+<td><code>participant_id_regex</code></td>
+<td><code>^ID\\d{4,8}$</code></td>
+<td>Full-match pattern for IDs. In JSON, escape <code>\</code> as
+<code>\\</code>; for example, use <code>"^#\\d{4,8}$"</code> for IDs
+such as <code>#0000</code>.</td>
+</tr>
+<tr>
+<td><code>mom_pattern</code></td>
+<td><code>_mom</code></td>
+<td>Case-insensitive substring marking a mother video.</td>
+</tr>
+<tr>
+<td><code>child_pattern</code></td>
+<td><code>_child</code></td>
+<td>Case-insensitive substring marking a child video; must differ from
+<code>mom_pattern</code>.</td>
+</tr>
+<tr>
+<td><code>video_description</code></td>
+<td><code>null</code></td>
+<td>Optional filename label inserted after the ID for both synchronized
+videos and optional side-by-side output. A non-null label may contain
+letters, digits, single spaces, <code>_</code> or <code>-</code> between
+alphanumeric segments (maximum 80 characters); spaces become
+underscores. Changing it for completed pairs requires
+<code>--reprocess</code>.</td>
+</tr>
+<tr>
+<td><code>video_extensions</code></td>
+<td><code>[".mp4", ".avi", ".mov", ".mkv"]</code></td>
+<td>Accepted source extensions; matching is case-insensitive.</td>
+</tr>
+<tr>
+<td><code>create_side_by_side</code></td>
+<td><code>false</code></td>
+<td>Also create <code>&lt;ID&gt;[_description]_side_by_side.mp4</code>.
+Enable before processing or use <code>--reprocess</code> for completed
+pairs.</td>
+</tr>
+<tr>
+<td><code>require_approval</code></td>
+<td><code>true</code></td>
+<td>Prompt for <code>yes</code> on real runs with eligible videos. A
+report with no eligible videos does not prompt. Set to
+<code>false</code> for unattended runs.</td>
+</tr>
+<tr>
+<td><code>require_ready_marker</code></td>
+<td><code>false</code></td>
+<td>Require a <code>READY.txt</code> marker for incoming material when
+enabled.</td>
+</tr>
+<tr>
+<td><code>ready_marker_name</code></td>
+<td><code>READY.txt</code></td>
+<td>Name of that marker file.</td>
+</tr>
+<tr>
+<td><code>stability_minutes</code></td>
+<td><code>120</code></td>
+<td>Minimum source-file age and unchanged prior-observation interval;
+<code>0</code> disables those two checks only.</td>
+</tr>
+<tr>
+<td><code>stability_recheck_seconds</code></td>
+<td><code>5</code></td>
+<td>Pause, then check again for additions, removals or file changes;
+remains active when <code>stability_minutes</code> is <code>0</code>.
+Use <code>0</code> to disable this recheck.</td>
+</tr>
+<tr>
+<td><code>stability_requires_prior_observation</code></td>
+<td><code>true</code></td>
+<td>With positive <code>stability_minutes</code>, require a previous
+real-run observation of the unchanged files. Dry runs never save
+observations.</td>
+</tr>
+<tr>
+<td><code>max_attempts</code></td>
+<td><code>3</code></td>
+<td>Maximum automatic retries for sync/encode failures before manual
+reprocessing.</td>
+</tr>
+<tr>
+<td><code>lock_stale_hours</code></td>
+<td><code>24</code></td>
+<td>A run lock with no heartbeat for this long can be replaced.</td>
+</tr>
+<tr>
+<td><code>ffmpeg</code></td>
+<td><code>ffmpeg</code></td>
+<td>Executable name on <code>PATH</code>, or full path to FFmpeg.</td>
+</tr>
+<tr>
+<td><code>ffprobe</code></td>
+<td><code>ffprobe</code></td>
+<td>Executable name on <code>PATH</code>, or full path to ffprobe.</td>
+</tr>
+</tbody>
+</table>
+<p>Transfer-in-progress files block processing regardless of the
+stability-minute setting. The <code>sync</code> and <code>encode</code>
+keys are optional <strong>JSON objects</strong> with these subkeys
+(write them inside their corresponding object, as in
+<code>config.example.json</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sync.sample_rate</code></td>
+<td><code>8000</code></td>
+<td>Audio analysis sample rate (Hz).</td>
+</tr>
+<tr>
+<td><code>sync.max_lag_seconds</code></td>
+<td><code>120.0</code></td>
+<td>Largest offset searched in the coarse stage (seconds).</td>
+</tr>
+<tr>
+<td><code>sync.window_seconds</code></td>
+<td><code>60.0</code></td>
+<td>Analysis window length (seconds).</td>
+</tr>
+<tr>
+<td><code>sync.coarse_windows</code></td>
+<td><code>7</code></td>
+<td>Number of coarse analysis windows.</td>
+</tr>
+<tr>
+<td><code>sync.coarse_tolerance_seconds</code></td>
+<td><code>0.5</code></td>
+<td>Coarse window offset agreement tolerance (seconds).</td>
+</tr>
+<tr>
+<td><code>sync.fine_windows</code></td>
+<td><code>5</code></td>
+<td>Number of fine analysis windows.</td>
+</tr>
+<tr>
+<td><code>sync.fine_search_seconds</code></td>
+<td><code>2.0</code></td>
+<td>Search range around the coarse offset (± seconds).</td>
+</tr>
+<tr>
+<td><code>sync.fine_tolerance_seconds</code></td>
+<td><code>0.25</code></td>
+<td>Fine window agreement tolerance (seconds).</td>
+</tr>
+<tr>
+<td><code>sync.min_ncc</code></td>
+<td><code>0.05</code></td>
+<td>Minimum normalized correlation peak.</td>
+</tr>
+<tr>
+<td><code>sync.min_peak_ratio</code></td>
+<td><code>1.5</code></td>
+<td>Minimum ratio of the best peak to a competing peak.</td>
+</tr>
+<tr>
+<td><code>sync.min_agreeing_windows</code></td>
+<td><code>3</code></td>
+<td>Minimum agreeing fine windows; cannot exceed
+<code>sync.fine_windows</code>.</td>
+</tr>
+<tr>
+<td><code>sync.min_agree_fraction</code></td>
+<td><code>0.6</code></td>
+<td>Minimum fraction of fine windows agreeing.</td>
+</tr>
+<tr>
+<td><code>sync.min_overlap_seconds</code></td>
+<td><code>10.0</code></td>
+<td>Minimum overlap to estimate an offset (seconds).</td>
+</tr>
+<tr>
+<td><code>sync.silence_rms</code></td>
+<td><code>0.0001</code></td>
+<td>Audio level below which a window is treated as silent.</td>
+</tr>
+<tr>
+<td><code>encode.video_codec</code></td>
+<td><code>libx264</code></td>
+<td>Video encoder for re-encoded output.</td>
+</tr>
+<tr>
+<td><code>encode.preset</code></td>
+<td><code>fast</code></td>
+<td>Encoding speed/quality preset.</td>
+</tr>
+<tr>
+<td><code>encode.crf</code></td>
+<td><code>20</code></td>
+<td>Constant-rate-factor quality setting.</td>
+</tr>
+<tr>
+<td><code>encode.audio_bitrate</code></td>
+<td><code>192k</code></td>
+<td>Encoded audio bitrate.</td>
+</tr>
+<tr>
+<td><code>encode.copy_untrimmed_when_possible</code></td>
+<td><code>true</code></td>
+<td>Stream-copy compatible, untrimmed cameras rather than
+re-encoding.</td>
+</tr>
+<tr>
+<td><code>encode.min_trim_seconds</code></td>
+<td><code>0.02</code></td>
+<td>Treat smaller absolute offsets as zero for trimming.</td>
+</tr>
+<tr>
+<td><code>encode.duration_tolerance_seconds</code></td>
+<td><code>1.5</code></td>
+<td>Allowed difference between expected and encoded duration
+(seconds).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="local-conventions">Local conventions</h3>
+<p>For WCHADS data, change the config.json to:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;participant_id_regex&quot;</span><span class="er">:</span> <span class="st">&quot;^#</span><span class="ch">\\</span><span class="st">d{4,8}$&quot;</span><span class="er">,</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;mom_pattern&quot;</span><span class="er">:</span> <span class="st">&quot;mum view point&quot;</span><span class="er">,</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;child_pattern&quot;</span><span class="er">:</span> <span class="st">&quot;teen view point&quot;</span><span class="er">,</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;create_side_by_side&quot;</span><span class="er">:</span> <span class="kw">true</span></span></code></pre></div>
+<h2 id="5-preview-the-run-first">5. Preview the run first</h2>
+<p>Always start with a dry run:</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode bat"><code class="sourceCode dosbat"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>python pipeline_rg2019.py -<span class="at">-config</span> config.json -<span class="at">-dry-run</span></span></code></pre></div>
+<p>Read the output and make sure the folders and participant videos it
+identifies are the ones you expect. A dry run does not create folders or
+write state; it lists matching videos and reports those waiting for
+stability. A real run prints a pre-run inventory of source videos to
+sync and those skipped or blocked (including missing/ambiguous matches,
+unsupported suffixes, and already-synced participants). When videos are
+eligible and <code>require_approval</code> is <code>true</code>, it
+requires you to type <code>yes</code> before processing. Any other
+response cancels and returns exit code <code>1</code>. If no videos are
+eligible to sync, the real-run command prints the report and exits
+without requesting approval or starting full processing. This includes
+pairs waiting for stability; first observations are recorded so a later
+run can recheck them. Review problems still return exit code
+<code>2</code>.</p>
+<p>With the default settings, a new participant can remain in a waiting
+status during a dry run. That is expected: the default stability check
+requires a prior <strong>real</strong> run to have observed the files
+unchanged. Repeating dry runs will not satisfy that check because dry
+runs do not save observations. The README explains how to do a one-off
+pilot dry run without changing files.</p>
+<h2 id="6-run-the-pipeline">6. Run the pipeline</h2>
+<p>Only after reviewing the dry-run output, start a real run:</p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode bat"><code class="sourceCode dosbat"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>python pipeline_rg2019.py -<span class="at">-config</span> config.json</span></code></pre></div>
+<p>The pipeline waits until incoming files appear stable. With the
+default configuration, files must be at least 120 minutes old and must
+have been observed unchanged during an earlier real run; consequently, a
+new participant will normally wait until a later run.
+Transfer-in-progress files also block processing.</p>
+<p>The pipeline accepts pairs directly in <code>00_INBOX</code> or in
+nested folders. Each participant ID needs exactly one <code>_mom</code>
+and one <code>_child</code> video in the same folder; the ID comes from
+the filenames or, if absent there, the folder path. Multiple ID pairs
+may share a folder. Source folders are preserved in <code>01_RAW</code>
+and <code>02_SYNCED</code>; status and logs are recorded under
+<code>99_LOGS_QC</code>. <strong>Do not edit files in
+<code>01_RAW</code>.</strong></p>
+<h2 id="7-useful-command-options">7. Useful command options</h2>
+<p>Replace <code>ID100392</code> with the participant ID you intend to
+process.</p>
+<table>
+<thead>
+<tr>
+<th>What you want to do</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Process only one participant</td>
+<td><code>python pipeline_rg2019.py --config config.json --participant ID100392</code></td>
+</tr>
+<tr>
+<td>Preview one participant</td>
+<td><code>python pipeline_rg2019.py --config config.json --participant ID100392 --dry-run</code></td>
+</tr>
+<tr>
+<td>Reprocess a participant from <code>01_RAW</code></td>
+<td><code>python pipeline_rg2019.py --config config.json --participant ID100392 --reprocess ID100392</code></td>
+</tr>
+<tr>
+<td>Show more diagnostic detail</td>
+<td><code>python pipeline_rg2019.py --config config.json --log-level DEBUG</code></td>
+</tr>
+<tr>
+<td>Skip approval and the stability-minute wait for this run</td>
+<td><code>python pipeline_rg2019.py --config config.json --yolo</code></td>
+</tr>
+<tr>
+<td>Use a manually reviewed offset</td>
+<td><code>python pipeline_rg2019.py --config config.json --participant ID100392 --reprocess ID100392 --manual-offset 12.34</code></td>
+</tr>
+</tbody>
+</table>
+<p>Reprocessing archives known previous outputs under a
+<code>_superseded_...</code> folder rather than deleting them. A manual
+offset should only be used after reviewing the videos and deciding the
+correct offset. It requires exactly one <code>--participant</code>; a
+positive offset trims the mother video, and a negative offset trims the
+child video. See the README for the full command and details.
+<code>--yolo</code> still prints the report and retains transfer-file
+blocking, the growth re-check, and the run lock; it does not change your
+saved config. With <code>--dry-run</code>, it remains read-only.</p>
+<h3 id="cli-option-reference">CLI option reference</h3>
+<p>These are all command-line options supported by
+<code>pipeline_rg2019.py</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--config PATH</code></td>
+<td><code>config.json</code></td>
+<td>Load this JSON configuration; with <code>--setup</code>, write the
+generated configuration here.</td>
+</tr>
+<tr>
+<td><code>--setup FOLLOWUP_ROOT</code></td>
+<td>Not set</td>
+<td>Initialize a config and its folders, then exit. Existing configs
+require confirmation before overwrite.</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>Off</td>
+<td>Preview decisions without moving files, writing state or encoding.
+It does not satisfy prior-observation stability.</td>
+</tr>
+<tr>
+<td><code>--yolo</code></td>
+<td>Off</td>
+<td>For this invocation, set <code>stability_minutes=0</code> and skip
+approval. Transfer-file blocking, the configured recheck and locking
+remain. Combining with <code>--dry-run</code> stays read-only.</td>
+</tr>
+<tr>
+<td><code>--participant ID</code></td>
+<td>All IDs</td>
+<td>Restrict processing to this ID; repeat to select several.</td>
+</tr>
+<tr>
+<td><code>--reprocess ID</code></td>
+<td>No IDs</td>
+<td>Recompute from RAW for this ID and archive existing outputs; repeat
+for several IDs.</td>
+</tr>
+<tr>
+<td><code>--manual-offset SECONDS</code></td>
+<td>Automatic estimation</td>
+<td>Use a reviewed offset with exactly one <code>--participant</code>
+(<code>+</code> trims mother, <code>-</code> trims child). Add
+<code>--reprocess ID</code> when changing a completed pair.</td>
+</tr>
+<tr>
+<td><code>--log-level {INFO,DEBUG}</code></td>
+<td><code>INFO</code></td>
+<td>Set logging detail.</td>
+</tr>
+<tr>
+<td><code>--version</code></td>
+<td>—</td>
+<td>Show the program version and exit.</td>
+</tr>
+<tr>
+<td><code>-h</code>, <code>--help</code></td>
+<td>—</td>
+<td>Show command help and exit.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="8-check-results-and-troubleshoot">8. Check results and
+troubleshoot</h2>
+<p>Look at <code>99_LOGS_QC\\pipeline_status.csv</code> for the
+participant statuses and messages. The dated log files are in
+<code>99_LOGS_QC\\logs</code>. The command exits with code
+<code>0</code> when no human action is needed, <code>2</code> when
+something needs review or failed, and <code>3</code> for a
+configuration, tool, or lock problem.</p>
+<p>Common problems:</p>
+<table>
+<thead>
+<tr>
+<th>Message or situation</th>
+<th>What to check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ffmpeg was not found</code></td>
+<td>Install FFmpeg or set full paths for <code>ffmpeg</code> and
+<code>ffprobe</code> in <code>config.json</code>.</td>
+</tr>
+<tr>
+<td>Participant stays in a waiting status</td>
+<td>Check <code>pipeline_status.csv</code> and the log. Waiting on a new
+participant is expected with the default prior-observation setting.</td>
+</tr>
+<tr>
+<td><code>MISSING_FILES</code> or <code>AMBIGUOUS_FILES</code></td>
+<td>Confirm there is exactly one <code>_mom</code> video and one
+<code>_child</code> video in the participant's inbox folder.</td>
+</tr>
+<tr>
+<td><code>LOW_CONFIDENCE</code></td>
+<td>Review the recordings and status details; do not assume the
+estimated offset is correct. See the README before reprocessing or using
+a manual offset.</td>
+</tr>
+<tr>
+<td><code>PROMOTE_FAILED</code></td>
+<td>A file may be locked by another program. Close it and run the
+pipeline again. <code>00_INBOX</code> and <code>01_RAW</code> must be on
+the same volume.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="more-information">More information</h2>
+<p>The repository's <a href="../README.md">README</a> describes
+readiness rules, synchronization behavior, statuses, and manual
+reprocessing in more detail. For automatic daily runs, see <a
+href="WINDOWS_TASK_SCHEDULER.md">Windows Task Scheduler setup</a>.</p>
+</body>
+</html>

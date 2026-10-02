@@ -52,6 +52,8 @@ Daily flow per participant:
 
 ## 2. Prerequisites and installation
 
+For a step-by-step command-line walkthrough, see the [beginner's guide](docs/COMMAND_LINE_GUIDE.md).
+
 * Windows 10/11 (developed/tested on Linux; all paths use `pathlib`), Python >= 3.10.
 * `ffmpeg` and `ffprobe` (with libx264 and aac) installed; checked at start-up.
 * `pip install -r requirements.txt` (numpy, scipy). Tests: `pip install -r requirements-dev.txt`.
@@ -59,9 +61,11 @@ Daily flow per participant:
 ```bat
 cd C:\RG2019\research-video-sync
 python -m pip install -r requirements.txt
-copy config.example.json config.json
+python pipeline_rg2019.py --setup "D:\RG2019_CAMERAS\FOLLOWUP_2026"
 notepad config.json
 ```
+
+`--setup` creates a local `config.json` from the example settings, sets `followup_root`, and creates the configured folder layout. An absolute follow-up path is recommended. If a config already exists, setup asks before replacing it.
 
 `config.json` is git-ignored (machine-specific). Only `config.example.json` (fake paths) is committed.
 
@@ -79,6 +83,8 @@ notepad config.json
 | `stability_recheck_seconds` | `5` | re-stat files after this pause to catch files still growing; active **even when `stability_minutes` is `0`** (set this to `0` to switch it off) |
 | `stability_requires_prior_observation` | `true` | files must also have been seen unchanged by a *previous run* (see below) |
 | `create_side_by_side` | **`false`** | also create `IDxxxx_side_by_side.mp4` (large) |
+| `video_description` | `null` | optional filename-safe label; `"pilot visit"` produces `IDxxxx_pilot_visit_mom_synced.mp4` (and labels child and side-by-side outputs) |
+| `require_approval` | `true` | require typing `yes` after the pre-run report on real runs |
 | `max_attempts` | `3` | automatic retries for `SYNC_FAILED`/`ENCODE_FAILED` |
 | `sync.*` | see file | sample rate (8000 Hz), `max_lag_seconds` (120), window length (60 s), thresholds; `min_agreeing_windows` must not exceed `fine_windows` |
 | `encode.*` | `fast`, CRF 20, 192k | x264 preset/CRF, AAC bitrate, `copy_untrimmed_when_possible` |
@@ -96,9 +102,11 @@ python pipeline_rg2019.py --config config.json --dry-run
 python pipeline_rg2019.py --config config.json
 ```
 
-Other options: `--participant IDxxxx` (repeatable; restrict to those IDs), `--reprocess IDxxxx`, `--manual-offset SECONDS`,
-`--log-level DEBUG`. Exit code `0` = fine, `2` = something needs manual review/failed, `3` = config/tool/lock problem.
+Other options: `--setup FOLLOWUP_ROOT` (create config and folder structure), `--participant IDxxxx` (repeatable; restrict to those IDs), `--reprocess IDxxxx`, `--manual-offset SECONDS`, `--yolo` (skip approval and set stability minutes to zero for this invocation),
+`--log-level DEBUG`. Exit code `0` = fine, `1` = real run cancelled at approval, `2` = something needs manual review/failed, `3` = config/tool/lock problem.
 The run ends with a summary (Newly completed / Skipped completed / Waiting / Manual review / Failed, with IDs).
+`--yolo` still prints the pre-run report and retains transfer-file detection, the configured growth re-check, and the run lock. Changing `video_description` for existing outputs requires `--reprocess`; prior files are archived.
+If the pre-run report finds no videos eligible to sync (including when all are already synced or waiting), the command prints the report and exits without asking for approval or starting a full run. It records any first stability observations so a later run can proceed. Review problems still return exit code `2`.
 Daily scheduling: [docs/WINDOWS_TASK_SCHEDULER.md](docs/WINDOWS_TASK_SCHEDULER.md).
 
 **Dry run** does read-only work only: it applies the readiness/stability rules, discovers and `ffprobe`s the videos and
@@ -137,10 +145,14 @@ For a participant in INBOX the pipeline waits (`WAITING_FOR_READY` / `WAITING_FO
 
 ### Which files are chosen
 
-Exactly one video whose name contains `_mom` and exactly one containing `_child` (any of the configured extensions,
-case-insensitive, top level of the participant folder). **The first match is never silently taken:** zero -> `MISSING_FILES`,
-more than one (or one matching both patterns) -> `AMBIGUOUS_FILES`; the participant stops and is listed for manual review.
-Other files in the participant folder (notes etc.) are moved to RAW together with the videos as original material.
+Pairs may live directly in `00_INBOX` or together in any subfolder. The participant ID is found in each video's
+filename first, then in its containing path; each pair must have exactly one `_mom` and one `_child` video with the
+same ID **in the same directory**. Multiple IDs may share a directory. A missing role, duplicate role, or a pair
+split across folders is flagged for manual review; no first match is silently chosen. Unmatched extra videos are not
+selected for processing.
+The relative directory structure is preserved in `01_RAW` and `02_SYNCED`. For example, a pair in
+`00_INBOX/batch/` produces outputs in `02_SYNCED/batch/`. Existing ID-only folders retain their legacy behavior,
+including promotion of other original material (notes etc.); flexible layouts move the two selected videos only.
 
 ### Synchronisation
 

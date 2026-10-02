@@ -76,6 +76,13 @@ state/
 *.corrupt-*
 _superseded_*/
 
+# ---- Quarto-generated output and caches -------------------------------
+.quarto/
+_freeze/
+_site/
+_book/
+*_files/
+
 # ---- machine-specific configuration (commit only config.example.json) --
 config.json
 config.local.json
