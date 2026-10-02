@@ -30,6 +30,13 @@ Python should report version 3.10 or newer. If either command is not recognized,
 Choose a folder where you want to keep the program, open Command Prompt, and run:
 
 ```bat
+git clone https://github.com/chmlz/research-video-sync.git
+cd research-video-sync
+```
+
+or 
+
+```bat
 git clone https://github.com/sgbstats/research-video-sync.git
 cd research-video-sync
 ```
@@ -69,7 +76,7 @@ Keep `config.json` private to your machine. It is intentionally excluded from Gi
 
 ### Local conventions
 
-For WCHADS data change the regex to:
+For WCHADS data, change the config.json to:
 
 ```json
   "participant_id_regex": "^#\\d{4,8}$",
