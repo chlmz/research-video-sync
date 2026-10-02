@@ -25,7 +25,7 @@ from typing import Any, Callable
 
 from . import media, syncest
 from .config import Config
-from .discovery import (Discovery, find_sources, is_ignored_dir, is_junk_file, is_transit_file,
+from .discovery import (Discovery, discover_jobs, find_sources, is_ignored_dir, is_junk_file, is_transit_file,
                         valid_participant_id)
 from .media import MediaError, MediaInfo
 from .state import StateStore, new_state
@@ -177,12 +177,15 @@ class Pipeline:
         for root in (cfg.inbox_dir, cfg.raw_dir):
             if not root.is_dir():
                 continue
+            ids.update(discover_jobs(cfg, root))
             for p in sorted(root.iterdir()):
-                if not p.is_dir() or is_ignored_dir(p.name):
+                if not p.is_dir() or (is_ignored_dir(p.name) and not valid_participant_id(cfg, p.name)):
                     continue
                 if valid_participant_id(cfg, p.name):
                     ids.add(p.name)
-                elif not any(o.pid == p.name for o in bad):
+                elif not any(o.pid == p.name for o in bad) and not any(
+                        video.is_file() and video.suffix.lower() in cfg.video_extensions
+                        for video in p.rglob("*")):
                     bad.append(Outcome(p.name, S.INVALID_ID,
                                        f"folder name does not match {cfg.participant_id_regex!r}"))
         ids.update(i for i in self.store.all_ids() if valid_participant_id(cfg, i))
@@ -224,6 +227,17 @@ class Pipeline:
     # ------------------------------------------------------------------ per participant
     def process(self, pid: str) -> Outcome:
         cfg = self.cfg
+        discovered = {root: discover_jobs(cfg, root) for root in (cfg.inbox_dir, cfg.raw_dir)}
+        legacy = any((root / pid).is_dir() for root in discovered)
+        for root, jobs in discovered.items():
+            if any(path.parent != root / pid for job in (jobs.get(pid),) if job
+                   for path in job.mom + job.child + job.both):
+                legacy = False
+            if any(path.parent == root / pid for other_id, job in jobs.items() if other_id != pid
+                   for path in job.mom + job.child + job.both):
+                legacy = False
+        if not legacy:
+            return self._process_discovered(pid)
         inbox, raw, out = cfg.inbox_dir / pid, cfg.raw_dir / pid, cfg.synced_dir / pid
         self._integrity.pop(pid, None)
         st = self._load(pid)
@@ -252,6 +266,101 @@ class Pipeline:
             return Outcome(pid, S.WAITING_FOR_STABILITY, "inbox folder is empty (nothing to process yet)")
         return self._fail(st, S.RAW_CONFLICT,
                           f"state says {st.get('status')} but neither 00_INBOX/{pid} nor 01_RAW/{pid} exists")
+
+    def _process_discovered(self, pid: str) -> Outcome:
+        """Process a pair in an arbitrary directory, preserving its relative path."""
+        cfg = self.cfg
+        st = self._load(pid)
+        st["last_checked_at"] = self._iso()
+        incoming = discover_jobs(cfg, cfg.inbox_dir).get(pid)
+        existing = discover_jobs(cfg, cfg.raw_dir).get(pid)
+        if incoming and incoming.problem and st.get("stage") != "PROMOTING":
+            status = S.MISSING_FILES if incoming.problem == "MISSING" else S.AMBIGUOUS_FILES
+            return self._fail(st, status, incoming.describe())
+        if existing and existing.problem and st.get("stage") != "PROMOTING":
+            status = S.MISSING_FILES if existing.problem == "MISSING" else S.AMBIGUOUS_FILES
+            return self._fail(st, status, existing.describe())
+        if incoming and existing and st.get("stage") != "PROMOTING":
+            return self._fail(st, S.RAW_CONFLICT, "source videos exist in both INBOX and RAW")
+        pair = incoming if incoming and st.get("stage") != "PROMOTING" else existing or incoming
+        if st.get("stage") == "PROMOTING" and st.get("source_folder") is not None:
+            relative_dir = Path(st["source_folder"])
+        elif pair:
+            source_root = cfg.inbox_dir if pair is incoming else cfg.raw_dir
+            relative_dir = pair.mom[0].parent.relative_to(source_root)
+        else:
+            relative_dir = Path(".")
+        if not pair and st.get("stage") != "PROMOTING":
+            return self._fail(st, S.RAW_CONFLICT, "no source videos found in INBOX or RAW")
+        # Once recorded, a change of source location cannot redirect existing outputs.
+        if st.get("source_folder") is not None and st["source_folder"] != relative_dir.as_posix():
+            return self._fail(st, S.RAW_CONFLICT, "source folder changed after validation")
+        st["source_folder"] = relative_dir.as_posix()
+        out = cfg.synced_dir / relative_dir
+        if pid in self.reprocess:
+            if self.dry:
+                return Outcome(pid, WOULD_PROCESS, "", "dry", ["archive existing outputs and re-sync from RAW"])
+            self._prepare_reprocess(st, out)
+        if incoming and st.get("stage") != "PROMOTING":
+            files = self._files_under(pair.mom[0].parent)
+            wait = self._check_ready(st, pair.mom[0].parent, files)
+            if wait:
+                return self._fail(st, wait[0], wait[1])
+            fail, found = self._discover_and_probe(st, pair.mom[0].parent, discovery=pair)
+            if fail:
+                return fail
+            if self.dry:
+                return Outcome(pid, WOULD_PROCESS, "", "dry", [
+                    f"move pair to 01_RAW/{relative_dir}, then sync into 02_SYNCED/{relative_dir}/{pid}"])
+            for role in ROLES:
+                path, info = found[role]
+                st["sources"][role] = {"name": path.relative_to(cfg.inbox_dir).as_posix(),
+                                       "size": info.size_bytes, "mtime_ns": path.stat().st_mtime_ns,
+                                       "sha256": media.sha256_file(path), "media": info.to_dict()}
+            st["stage"] = "PROMOTING"
+            self._set(st, S.RAW_PROMOTED, "promotion in progress")
+            self._save(st)
+        if st.get("stage") == "PROMOTING":
+            try:
+                for role in ROLES:
+                    name = st["sources"][role]["name"]
+                    src, dst = cfg.inbox_dir / name, cfg.raw_dir / name
+                    if dst.exists():
+                        if (src.exists() or dst.stat().st_size != st["sources"][role]["size"]
+                                or media.sha256_file(dst) != st["sources"][role]["sha256"]):
+                            return self._fail(st, S.RAW_CONFLICT, f"{name} already exists in RAW")
+                    else:
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        os.rename(src, dst)
+                    st.setdefault("promotion", {}).setdefault("moved", []).append(name)
+                    self._save(st)
+            except OSError as exc:
+                return self._fail(st, S.PROMOTE_FAILED, f"could not move pair to RAW: {exc}")
+            st["stage"], st["raw_promoted_at"] = "RAW", self._iso()
+            self._set(st, S.RAW_PROMOTED, "moved to RAW; sync pending")
+            self._save(st)
+            folder = cfg.inbox_dir / st["source_folder"]
+            if folder != cfg.inbox_dir and not any(p.name != cfg.ready_marker_name for p in folder.iterdir()):
+                self._tidy_inbox(folder)
+        elif not st.get("sources"):
+            files = self._files_under(pair.mom[0].parent)
+            wait = self._check_ready(st, pair.mom[0].parent, files, marker=False)
+            if wait:
+                return self._fail(st, wait[0], wait[1])
+            fail, found = self._discover_and_probe(st, pair.mom[0].parent, discovery=pair)
+            if fail:
+                return fail
+            if self.dry:
+                return Outcome(pid, WOULD_PROCESS, "", "dry", ["validate, hash and sync RAW pair"])
+            for role in ROLES:
+                path, info = found[role]
+                st["sources"][role] = {"name": path.relative_to(cfg.raw_dir).as_posix(),
+                                       "size": info.size_bytes, "mtime_ns": path.stat().st_mtime_ns,
+                                       "sha256": media.sha256_file(path), "media": info.to_dict()}
+            st["stage"] = "RAW"
+            self._set(st, S.RAW_PROMOTED, "RAW verified")
+            self._save(st)
+        return self._from_raw(pid, st, cfg.raw_dir, out)
 
     def _load(self, pid: str) -> dict:
         if self.dry:      # read-only: never rename a corrupt state file in dry-run
@@ -312,9 +421,10 @@ class Pipeline:
         return None
 
     # ------------------------------------------------------------------ validation
-    def _discover_and_probe(self, st: dict, folder: Path, kind: str = "") -> tuple[Outcome | None, dict]:
+    def _discover_and_probe(self, st: dict, folder: Path, kind: str = "",
+                            discovery: Discovery | None = None) -> tuple[Outcome | None, dict]:
         cfg = self.cfg
-        d: Discovery = find_sources(cfg, folder)
+        d: Discovery = discovery if discovery is not None else find_sources(cfg, folder)
         prob = d.problem
         if prob == "MISSING":
             return self._fail(st, S.MISSING_FILES, "mother and/or child video not found. " + d.describe(), kind), {}
@@ -576,7 +686,7 @@ class Pipeline:
         mt, ct = syncest.trim_plan(offset, cfg.encode.min_trim_seconds)
         trims = {"mom": mt, "child": ct}
         out.mkdir(parents=True, exist_ok=True)
-        for stale in out.glob("*.partial"):          # leftovers of an interrupted run (ours by construction)
+        for stale in out.glob(f"{pid}_*.mp4.partial"):
             log.info("%s: removing stale %s", pid, stale.name)
             stale.unlink(missing_ok=True)
         files = st.setdefault("outputs", {}).setdefault("files", {})
@@ -650,7 +760,7 @@ class Pipeline:
             stamp = self.now().strftime("%Y%m%d_%H%M%S")
             arch = out / f"_superseded_{stamp}"
             for f in out.iterdir():
-                if f.is_file():
+                if f.is_file() and f.name.startswith(f"{pid}_"):
                     arch.mkdir(exist_ok=True)
                     os.rename(f, arch / f.name)
         st.update({"sync": {}, "outputs": {"files": {}}, "sync_completed_at": None, "attempts": 0})

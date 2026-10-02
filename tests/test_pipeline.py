@@ -14,9 +14,9 @@ import pytest
 
 import pipeline_rg2019 as cli
 from helpers import make_video, recording, wall_signal
-from rg2019 import media, pipeline as pl, syncest
+from rg2019 import config as cfgmod, media, pipeline as pl, syncest
 from rg2019.config import SyncParams
-from rg2019.pipeline import Pipeline
+from rg2019.pipeline import Pipeline, Summary
 from rg2019.state import StateStore
 from rg2019.statuses import S
 
@@ -311,8 +311,162 @@ def test_cli_dry_run(cfg, make_participant, project, capsys, tmp_path):
     conf.write_text(json.dumps({"followup_root": str(project), "stability_minutes": 0}), encoding="utf-8")
     before = tree(project)
     code = cli.main(["--config", str(conf), "--dry-run"])
-    assert code == 0 and tree(project) == before
-    assert "Would process" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert code == 0
+    assert tree(project) == before
+    assert "Would process" in output
+    assert "Videos matching participant_id_regex" in output
+    assert "00_INBOX/ID100392/ID100392_mom.mp4" in output
+    assert "00_INBOX/ID100392/ID100392_child.mp4" in output
+    assert not cfg.state_dir.exists() and not cfg.status_csv.exists()
+
+
+def test_cli_dry_run_does_not_create_missing_folders(cfg, project, capsys, tmp_path):
+    shutil.rmtree(cfg.inbox_dir)
+    shutil.rmtree(cfg.raw_dir)
+    shutil.rmtree(cfg.synced_dir)
+    shutil.rmtree(cfg.logs_dir)
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"followup_root": str(project)}), encoding="utf-8")
+    assert cli.main(["--config", str(conf), "--dry-run"]) == 3
+    assert not any(project.iterdir())
+
+
+def test_cli_dry_run_lists_videos_waiting_for_stability(cfg, make_participant, project, capsys, tmp_path):
+    make_participant("ID100392")
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"followup_root": str(project), "stability_minutes": 10,
+                                "stability_recheck_seconds": 0}), encoding="utf-8")
+
+    assert cli.main(["--config", str(conf), "--dry-run"]) == 0
+    output = capsys.readouterr().out
+    assert "Unstable videos (1 participant folder(s))" in output
+    assert "ID100392: a file was modified" in output
+    assert "00_INBOX/ID100392/ID100392_mom.mp4" in output
+    assert "00_INBOX/ID100392/ID100392_child.mp4" in output
+
+
+def test_cli_real_run_cancellation_does_not_start_pipeline(cfg, make_participant, project,
+                                                           capsys, tmp_path, monkeypatch):
+    make_participant("ID100392")
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"followup_root": str(project), "stability_minutes": 0,
+                                "stability_recheck_seconds": 0}), encoding="utf-8")
+    run_modes = []
+    original_run = Pipeline.run
+
+    def track_run(self):
+        run_modes.append(self.dry)
+        return original_run(self)
+
+    monkeypatch.setattr(Pipeline, "run", track_run)
+    monkeypatch.setattr("builtins.input", lambda _: "no")
+
+    assert cli.main(["--config", str(conf)]) == 1
+    output = capsys.readouterr().out
+    assert "Will sync: 2 source video(s) across 1 participant(s)" in output
+    assert "PRE-RUN APPROVAL REPORT" in output
+    assert "Workflow cancelled" in output
+    assert run_modes == [True]
+    assert not cfg.state_dir.exists() and not cfg.status_csv.exists() and not cfg.lock_file.exists()
+
+
+def test_preflight_report_counts_matches_extras_and_unsupported_suffix(cfg, make_participant):
+    folder = make_participant("ID100392")
+    (folder / "extra_video.mp4").write_bytes(b"extra")
+    (folder / "ID100392_mom.wmv").write_bytes(b"unsupported suffix")
+
+    report = cli.preflight_report(cfg)
+
+    assert "Will sync: 2 source video(s) across 1 participant(s)" in report
+    assert "Won't sync this run: 2 video/file(s)" in report
+    assert "No match: 1 video(s) across 1 participant(s)" in report
+    assert "extra_video.mp4" in report
+    assert "No configured video suffix: 1 video/file(s) across 1 participant(s)" in report
+    assert "ID100392_mom.wmv" in report
+
+
+def test_cli_real_run_starts_only_after_approval(cfg, make_participant, project,
+                                                capsys, tmp_path, monkeypatch):
+    make_participant("ID100392")
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"followup_root": str(project), "stability_minutes": 0,
+                                "stability_recheck_seconds": 0}), encoding="utf-8")
+    run_modes = []
+    original_run = Pipeline.run
+
+    def track_run(self):
+        run_modes.append(self.dry)
+        return original_run(self) if self.dry else Summary()
+
+    monkeypatch.setattr(Pipeline, "run", track_run)
+    monkeypatch.setattr("builtins.input", lambda _: "yes")
+
+    assert cli.main(["--config", str(conf)]) == 0
+    assert run_modes == [True, False]
+    assert not cfg.lock_file.exists()
+
+
+def test_cli_setup_creates_config_and_followup_folders(tmp_path, capsys):
+    followup_root = tmp_path / "new followup"
+    config_path = tmp_path / "config.json"
+
+    assert cli.main(["--setup", str(followup_root), "--config", str(config_path)]) == 0
+
+    created = cfgmod.load(config_path)
+    assert created.followup_root == followup_root.resolve()
+    assert all(path.is_dir() for path in (
+        followup_root / "00_INBOX",
+        followup_root / "01_RAW",
+        followup_root / "02_SYNCED",
+        followup_root / "99_LOGS_QC",
+        followup_root / "99_LOGS_QC" / "logs",
+        followup_root / "99_LOGS_QC" / "state",
+    ))
+    assert "Created" in capsys.readouterr().out
+
+
+def test_cli_setup_uses_config_json_by_default(tmp_path, monkeypatch):
+    followup_root = tmp_path / "default config followup"
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.main(["--setup", str(followup_root)]) == 0
+
+    assert Path("config.json").is_file()
+    assert cfgmod.load(Path("config.json")).followup_root == followup_root.resolve()
+
+
+def test_cli_setup_declines_overwrite_without_creating_folders(tmp_path, capsys, monkeypatch):
+    followup_root = tmp_path / "new followup"
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"followup_root": "preserve this"}', encoding="utf-8")
+    before = config_path.read_text(encoding="utf-8")
+    monkeypatch.setattr("builtins.input", lambda _: "no")
+
+    assert cli.main(["--setup", str(followup_root), "--config", str(config_path)]) == 1
+
+    assert config_path.read_text(encoding="utf-8") == before
+    assert not followup_root.exists()
+    assert "Setup cancelled" in capsys.readouterr().out
+
+
+def test_cli_setup_confirms_overwrite_then_creates_folders(tmp_path, capsys, monkeypatch):
+    followup_root = tmp_path / "new followup"
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"followup_root": "old path"}', encoding="utf-8")
+    monkeypatch.setattr("builtins.input", lambda _: "yes")
+
+    assert cli.main(["--setup", str(followup_root), "--config", str(config_path)]) == 0
+
+    created = cfgmod.load(config_path)
+    assert created.followup_root == followup_root.resolve()
+    assert all(path.is_dir() for path in (
+        followup_root / "00_INBOX",
+        followup_root / "01_RAW",
+        followup_root / "02_SYNCED",
+        followup_root / "99_LOGS_QC",
+    ))
+    assert "Created" in capsys.readouterr().out
 
 
 # ====================================================================== readiness / stability

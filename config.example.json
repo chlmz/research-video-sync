@@ -9,6 +9,8 @@
   "participant_id_regex": "^ID\\d{4,8}$",
   "mom_pattern": "_mom",
   "child_pattern": "_child",
+
+  "create_side_by_side": false,
   "video_extensions": [".mp4", ".avi", ".mov", ".mkv"],
 
   "require_ready_marker": false,
@@ -16,8 +18,6 @@
   "stability_minutes": 120,
   "stability_recheck_seconds": 5,
   "stability_requires_prior_observation": true,
-
-  "create_side_by_side": false,
 
   "max_attempts": 3,
   "lock_stale_hours": 24,
