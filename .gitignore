@@ -82,7 +82,6 @@ _freeze/
 _site/
 _book/
 *_files/
-docs/COMMAND_LINE_GUIDE.html
 
 # ---- machine-specific configuration (commit only config.example.json) --
 config.json

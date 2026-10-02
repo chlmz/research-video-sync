@@ -16,7 +16,7 @@ import pipeline_rg2019 as cli
 from helpers import make_video, recording, wall_signal
 from rg2019 import config as cfgmod, media, pipeline as pl, syncest
 from rg2019.config import SyncParams
-from rg2019.pipeline import Pipeline, Summary
+from rg2019.pipeline import Outcome, Pipeline, Summary
 from rg2019.state import StateStore
 from rg2019.statuses import S
 
@@ -111,6 +111,30 @@ def test_side_by_side_is_optional(cfg, make_participant):
     assert sbs_info.has_video and sbs_info.has_audio and sbs_info.height == 720
     assert sbs_info.width > 1.5 * mom_info.width * 720 / mom_info.height / 1.0 - 4     # two panels wide
     assert state(cfg, "ID100392")["outputs"]["files"]["side_by_side"]["size"] == sbs.stat().st_size
+
+
+def test_video_description_names_pair_and_side_by_side(cfg, make_participant):
+    cfg.video_description = "pilot_run"
+    cfg.create_side_by_side = True
+    make_participant("ID100392")
+    assert run(cfg).newly_completed == ["ID100392"]
+    names = {p.name for p in (cfg.synced_dir / "ID100392").iterdir()}
+    assert names == {
+        "ID100392_pilot_run_mom_synced.mp4",
+        "ID100392_pilot_run_child_synced.mp4",
+        "ID100392_pilot_run_side_by_side.mp4",
+    }
+    assert {record["name"] for record in state(cfg, "ID100392")["outputs"]["files"].values()} == names
+
+
+def test_description_change_requires_reprocess(cfg, make_participant):
+    make_participant("ID100392")
+    assert run(cfg).newly_completed == ["ID100392"]
+    cfg.video_description = "pilot"
+    assert run(cfg).manual_review == ["ID100392"]
+    assert state(cfg, "ID100392")["status"] == S.OUTPUT_CONFLICT
+    assert run(cfg, reprocess=["ID100392"]).newly_completed == ["ID100392"]
+    assert (cfg.synced_dir / "ID100392" / "ID100392_pilot_mom_synced.mp4").is_file()
 
 
 # ====================================================================== discovery outcomes
@@ -404,6 +428,111 @@ def test_cli_real_run_starts_only_after_approval(cfg, make_participant, project,
 
     assert cli.main(["--config", str(conf)]) == 0
     assert run_modes == [True, False]
+    assert not cfg.lock_file.exists()
+
+
+def test_no_eligible_run_records_first_observation_without_approval(
+        cfg, project, tmp_path, monkeypatch, capsys):
+    folder = cfg.inbox_dir / "ID100392"
+    folder.mkdir()
+    videos = [folder / f"ID100392_{role}.mp4" for role in ("mom", "child")]
+    for path in videos:
+        path.write_bytes(b"test")
+        old = datetime.now().timestamp() - 300
+        os.utime(path, (old, old))
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"followup_root": str(project), "stability_minutes": 1,
+                                "stability_recheck_seconds": 0}), encoding="utf-8")
+    monkeypatch.setattr(cli.media, "check_tools", lambda _: {})
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("approval was requested"))
+
+    assert cli.main(["--config", str(conf)]) == 0
+    assert "Will sync: 0 source video(s)" in capsys.readouterr().out
+    recorded = state(cfg, "ID100392")
+    assert recorded["stability"]["snapshot"]
+    assert recorded["stability"]["since_ts"]
+    assert all(path.is_file() for path in videos)
+    assert not cfg.lock_file.exists()
+
+    # On a later run, the saved observation makes the pair eligible again.
+    saved = recorded["stability"]
+    saved["since_ts"] -= 120
+    StateStore(cfg).save(recorded)
+    observer = Pipeline(cfgmod.load(conf), dry_run=True)
+    assert observer._check_ready(recorded, folder, videos) is None
+
+
+@pytest.mark.parametrize("mode", ["yolo", "config"])
+def test_cli_skips_approval_when_requested(project, tmp_path, monkeypatch, mode):
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"followup_root": str(project), "stability_minutes": 120,
+                                "require_approval": mode != "config"}), encoding="utf-8")
+    observed = []
+    monkeypatch.setattr(cli.media, "check_tools", lambda cfg: {})
+    monkeypatch.setattr(cli, "preflight_inventory", lambda *args: ("preview", True, Summary(dry_run=True)))
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("approval was requested"))
+
+    def fake_run(self):
+        observed.append((self.dry, self.cfg.stability_minutes))
+        return Summary()
+
+    monkeypatch.setattr(Pipeline, "run", fake_run)
+    assert cli.main(["--config", str(conf)] + (["--yolo"] if mode == "yolo" else [])) == 0
+    assert observed == [(False, 0 if mode == "yolo" else 120)]
+
+
+def test_yolo_dry_run_keeps_read_only_semantics(project, tmp_path, monkeypatch):
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"followup_root": str(project)}), encoding="utf-8")
+    monkeypatch.setattr(cli.media, "check_tools", lambda cfg: {})
+    observed = []
+
+    def fake_run(self):
+        observed.append((self.dry, self.cfg.stability_minutes))
+        return Summary()
+
+    monkeypatch.setattr(Pipeline, "run", fake_run)
+    assert cli.main(["--config", str(conf), "--yolo", "--dry-run"]) == 0
+    assert observed == [(True, 0)]
+
+
+@pytest.mark.parametrize("sources", ["empty", "incomplete", "already_synced", "unstable"])
+def test_cli_no_eligible_videos_reports_without_approval(
+        cfg, project, tmp_path, monkeypatch, capsys, sources):
+    conf = tmp_path / "config.json"
+    settings = {"followup_root": str(project), "stability_minutes": 120,
+                "stability_recheck_seconds": 0}
+    if sources == "unstable":
+        (cfg.inbox_dir / "ID100392").mkdir()
+        (cfg.inbox_dir / "ID100392" / "ID100392_mom.mp4").write_bytes(b"test")
+        (cfg.inbox_dir / "ID100392" / "ID100392_child.mp4").write_bytes(b"test")
+    elif sources == "incomplete":
+        settings["stability_minutes"] = 0
+        (cfg.inbox_dir / "ID100392").mkdir()
+        (cfg.inbox_dir / "ID100392" / "ID100392_mom.mp4").write_bytes(b"test")
+    elif sources == "already_synced":
+        settings["stability_minutes"] = 0
+        (cfg.raw_dir / "ID100392").mkdir()
+        (cfg.raw_dir / "ID100392" / "ID100392_mom.mp4").write_bytes(b"test")
+        (cfg.raw_dir / "ID100392" / "ID100392_child.mp4").write_bytes(b"test")
+    conf.write_text(json.dumps(settings), encoding="utf-8")
+    monkeypatch.setattr(cli.media, "check_tools", lambda _: {})
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("approval was requested"))
+    original_run = Pipeline.run
+
+    def preview_only(self):
+        if not self.dry:
+            pytest.fail("real run was started")
+        if sources == "already_synced":
+            return Summary(outcomes=[Outcome("ID100392", S.SUCCESS, kind="skipped")], dry_run=True)
+        return original_run(self)
+
+    monkeypatch.setattr(Pipeline, "run", preview_only)
+    assert cli.main(["--config", str(conf)]) == (2 if sources == "incomplete" else 0)
+    output = capsys.readouterr().out
+    assert "PRE-RUN APPROVAL REPORT" in output
+    assert "Will sync: 0 source video(s)" in output
+    assert "No videos eligible for processing" in output
     assert not cfg.lock_file.exists()
 
 

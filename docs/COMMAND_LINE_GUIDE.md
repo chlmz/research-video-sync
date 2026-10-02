@@ -23,7 +23,7 @@ python --version
 
 Python should report version 3.10 or newer. If either command is not recognized, install the missing program or correct its `PATH` before continuing. FFmpeg and `ffprobe` must also be available on `PATH`, or their full paths must be set in the configuration file.
 
-> The project has not been tested on Windows itself. If you encounter platform-specific problems, check the troubleshooting section below and the project README.
+> If you encounter platform-specific problems, check the troubleshooting section below and the project README.
 
 ## 2. Get the project from GitHub
 
@@ -74,6 +74,62 @@ Use your own correct path; the example path is not a real location. The project 
 
 Keep `config.json` private to your machine. It is intentionally excluded from Git; only the example configuration should be committed.
 
+Set `"video_description": null` (default) to keep names such as `ID100392_mom_synced.mp4`, or set a filename-safe label such as `"pilot visit"` to write `ID100392_pilot_visit_mom_synced.mp4` (also applied to child and side-by-side outputs). Changing it for completed pairs requires `--reprocess` to archive old outputs. `"require_approval": true` (default) prompts for `yes` before a real run; setting it to `false` skips the prompt but retains the report.
+
+### Configuration reference
+
+The keys below are the complete set accepted by the current Python pipeline. Defaults are used when a key is omitted; `followup_root` is required. `config.example.json` shows a shorter configuration because it omits some settings that already have defaults. Unknown keys (except keys beginning with `_`, used for comments) are rejected.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `followup_root` | Required | Folder containing the INBOX, RAW, SYNCED and log folders. Use an absolute path; escape backslashes in JSON. |
+| `inbox` | `00_INBOX` | Incoming originals. |
+| `raw` | `01_RAW` | Preserved originals; must be on the same volume as INBOX. Do not edit files here. |
+| `synced` | `02_SYNCED` | Synchronized output videos. |
+| `logs_qc` | `99_LOGS_QC` | State files, CSV, logs and the run lock. |
+| `participant_id_regex` | `^ID\\d{4,8}$` | Full-match pattern for IDs. In JSON, escape `\` as `\\`; for example, use `"^#\\d{4,8}$"` for IDs such as `#0000`. |
+| `mom_pattern` | `_mom` | Case-insensitive substring marking a mother video. |
+| `child_pattern` | `_child` | Case-insensitive substring marking a child video; must differ from `mom_pattern`. |
+| `video_description` | `null` | Optional filename label inserted after the ID for both synchronized videos and optional side-by-side output. A non-null label may contain letters, digits, single spaces, `_` or `-` between alphanumeric segments (maximum 80 characters); spaces become underscores. Changing it for completed pairs requires `--reprocess`. |
+| `video_extensions` | `[".mp4", ".avi", ".mov", ".mkv"]` | Accepted source extensions; matching is case-insensitive. |
+| `create_side_by_side` | `false` | Also create `<ID>[_description]_side_by_side.mp4`. Enable before processing or use `--reprocess` for completed pairs. |
+| `require_approval` | `true` | Prompt for `yes` on real runs with eligible videos. A report with no eligible videos does not prompt. Set to `false` for unattended runs. |
+| `require_ready_marker` | `false` | Require a `READY.txt` marker for incoming material when enabled. |
+| `ready_marker_name` | `READY.txt` | Name of that marker file. |
+| `stability_minutes` | `120` | Minimum source-file age and unchanged prior-observation interval; `0` disables those two checks only. |
+| `stability_recheck_seconds` | `5` | Pause, then check again for additions, removals or file changes; remains active when `stability_minutes` is `0`. Use `0` to disable this recheck. |
+| `stability_requires_prior_observation` | `true` | With positive `stability_minutes`, require a previous real-run observation of the unchanged files. Dry runs never save observations. |
+| `max_attempts` | `3` | Maximum automatic retries for sync/encode failures before manual reprocessing. |
+| `lock_stale_hours` | `24` | A run lock with no heartbeat for this long can be replaced. |
+| `ffmpeg` | `ffmpeg` | Executable name on `PATH`, or full path to FFmpeg. |
+| `ffprobe` | `ffprobe` | Executable name on `PATH`, or full path to ffprobe. |
+
+Transfer-in-progress files block processing regardless of the stability-minute setting. The `sync` and `encode` keys are optional **JSON objects** with these subkeys (write them inside their corresponding object, as in `config.example.json`):
+
+| Key | Default | Purpose |
+|---|---|---|
+| `sync.sample_rate` | `8000` | Audio analysis sample rate (Hz). |
+| `sync.max_lag_seconds` | `120.0` | Largest offset searched in the coarse stage (seconds). |
+| `sync.window_seconds` | `60.0` | Analysis window length (seconds). |
+| `sync.coarse_windows` | `7` | Number of coarse analysis windows. |
+| `sync.coarse_tolerance_seconds` | `0.5` | Coarse window offset agreement tolerance (seconds). |
+| `sync.fine_windows` | `5` | Number of fine analysis windows. |
+| `sync.fine_search_seconds` | `2.0` | Search range around the coarse offset (± seconds). |
+| `sync.fine_tolerance_seconds` | `0.25` | Fine window agreement tolerance (seconds). |
+| `sync.min_ncc` | `0.05` | Minimum normalized correlation peak. |
+| `sync.min_peak_ratio` | `1.5` | Minimum ratio of the best peak to a competing peak. |
+| `sync.min_agreeing_windows` | `3` | Minimum agreeing fine windows; cannot exceed `sync.fine_windows`. |
+| `sync.min_agree_fraction` | `0.6` | Minimum fraction of fine windows agreeing. |
+| `sync.min_overlap_seconds` | `10.0` | Minimum overlap to estimate an offset (seconds). |
+| `sync.silence_rms` | `0.0001` | Audio level below which a window is treated as silent. |
+| `encode.video_codec` | `libx264` | Video encoder for re-encoded output. |
+| `encode.preset` | `fast` | Encoding speed/quality preset. |
+| `encode.crf` | `20` | Constant-rate-factor quality setting. |
+| `encode.audio_bitrate` | `192k` | Encoded audio bitrate. |
+| `encode.copy_untrimmed_when_possible` | `true` | Stream-copy compatible, untrimmed cameras rather than re-encoding. |
+| `encode.min_trim_seconds` | `0.02` | Treat smaller absolute offsets as zero for trimming. |
+| `encode.duration_tolerance_seconds` | `1.5` | Allowed difference between expected and encoded duration (seconds). |
+
 ### Local conventions
 
 For WCHADS data, change the config.json to:
@@ -93,7 +149,8 @@ Always start with a dry run:
 python pipeline_rg2019.py --config config.json --dry-run
 ```
 
-Read the output and make sure the folders and participant videos it identifies are the ones you expect. A dry run creates any missing configured top-level folders under `followup_root`, lists video files in valid participant folders whose extensions match the configured video suffixes, and reports videos in folders waiting for stability with the pipeline's reason. A real run first prints a pre-run inventory of source videos to sync and those skipped or blocked (including missing/ambiguous matches, unsupported suffixes, and already-synced participants), then requires you to type `yes` before starting. Any other response cancels without starting processing and returns exit code `1`.
+Read the output and make sure the folders and participant videos it identifies are the ones you expect. A dry run does not create folders or write state; it lists matching videos and reports those waiting for stability. A real run prints a pre-run inventory of source videos to sync and those skipped or blocked (including missing/ambiguous matches, unsupported suffixes, and already-synced participants). When videos are eligible and `require_approval` is `true`, it requires you to type `yes` before processing. Any other response cancels and returns exit code `1`.
+If no videos are eligible to sync, the real-run command prints the report and exits without requesting approval or starting full processing. This includes pairs waiting for stability; first observations are recorded so a later run can recheck them. Review problems still return exit code `2`.
 
 With the default settings, a new participant can remain in a waiting status during a dry run. That is expected: the default stability check requires a prior **real** run to have observed the files unchanged. Repeating dry runs will not satisfy that check because dry runs do not save observations. The README explains how to do a one-off pilot dry run without changing files.
 
@@ -119,8 +176,28 @@ Replace `ID100392` with the participant ID you intend to process.
 | Preview one participant | `python pipeline_rg2019.py --config config.json --participant ID100392 --dry-run` |
 | Reprocess a participant from `01_RAW` | `python pipeline_rg2019.py --config config.json --participant ID100392 --reprocess ID100392` |
 | Show more diagnostic detail | `python pipeline_rg2019.py --config config.json --log-level DEBUG` |
+| Skip approval and the stability-minute wait for this run | `python pipeline_rg2019.py --config config.json --yolo` |
+| Use a manually reviewed offset | `python pipeline_rg2019.py --config config.json --participant ID100392 --reprocess ID100392 --manual-offset 12.34` |
 
 Reprocessing archives known previous outputs under a `_superseded_...` folder rather than deleting them. A manual offset should only be used after reviewing the videos and deciding the correct offset. It requires exactly one `--participant`; a positive offset trims the mother video, and a negative offset trims the child video. See the README for the full command and details.
+`--yolo` still prints the report and retains transfer-file blocking, the growth re-check, and the run lock; it does not change your saved config. With `--dry-run`, it remains read-only.
+
+### CLI option reference
+
+These are all command-line options supported by `pipeline_rg2019.py`:
+
+| Option | Default | Effect |
+|---|---|---|
+| `--config PATH` | `config.json` | Load this JSON configuration; with `--setup`, write the generated configuration here. |
+| `--setup FOLLOWUP_ROOT` | Not set | Initialize a config and its folders, then exit. Existing configs require confirmation before overwrite. |
+| `--dry-run` | Off | Preview decisions without moving files, writing state or encoding. It does not satisfy prior-observation stability. |
+| `--yolo` | Off | For this invocation, set `stability_minutes=0` and skip approval. Transfer-file blocking, the configured recheck and locking remain. Combining with `--dry-run` stays read-only. |
+| `--participant ID` | All IDs | Restrict processing to this ID; repeat to select several. |
+| `--reprocess ID` | No IDs | Recompute from RAW for this ID and archive existing outputs; repeat for several IDs. |
+| `--manual-offset SECONDS` | Automatic estimation | Use a reviewed offset with exactly one `--participant` (`+` trims mother, `-` trims child). Add `--reprocess ID` when changing a completed pair. |
+| `--log-level {INFO,DEBUG}` | `INFO` | Set logging detail. |
+| `--version` | — | Show the program version and exit. |
+| `-h`, `--help` | — | Show command help and exit. |
 
 ## 8. Check results and troubleshoot
 

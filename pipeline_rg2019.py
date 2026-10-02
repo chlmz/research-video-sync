@@ -24,7 +24,7 @@ from rg2019.discovery import (
     is_transit_file,
     valid_participant_id,
 )
-from rg2019.pipeline import Pipeline
+from rg2019.pipeline import Pipeline, Summary
 from rg2019.state import RunLock
 from rg2019.statuses import S
 
@@ -38,6 +38,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="create config.json for this followup root and make its configured folders")
     ap.add_argument("--dry-run", action="store_true",
                     help="show what WOULD happen; moves nothing, writes no state, encodes nothing")
+    ap.add_argument("--yolo", action="store_true",
+                    help="run without approval and with stability_minutes=0 (other safety checks remain)")
     ap.add_argument("--participant", action="append", metavar="ID",
                     help="only handle this participant (repeatable)")
     ap.add_argument("--reprocess", action="append", metavar="ID",
@@ -106,10 +108,10 @@ def matching_video_files(cfg: cfgmod.Config) -> list[Path]:
     return matches
 
 
-def preflight_report(cfg: cfgmod.Config, only: list[str] | None = None,
-                     reprocess: list[str] | None = None,
-                     manual_offset: float | None = None) -> str:
-    """Build a read-only run inventory using the pipeline's dry-run decisions."""
+def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
+                        reprocess: list[str] | None = None,
+                        manual_offset: float | None = None) -> tuple[str, bool, Summary]:
+    """Build a read-only report and return eligibility and dry-run outcomes."""
     preview = Pipeline(cfg, dry_run=True, only=only, reprocess=reprocess,
                        manual_offset=manual_offset)
     pipeline_logger = logging.getLogger("rg2019")
@@ -254,7 +256,46 @@ def preflight_report(cfg: cfgmod.Config, only: list[str] | None = None,
     lines.insert(5, f"Won't sync this run: {len(excluded_paths)} video/file(s) "
                      f"(see exclusion reasons below)")
     lines.append("=" * 64)
-    return "\n".join(lines)
+    return "\n".join(lines), bool(will_sync), summary
+
+
+def preflight_report(cfg: cfgmod.Config, only: list[str] | None = None,
+                     reprocess: list[str] | None = None,
+                     manual_offset: float | None = None) -> str:
+    """Build a read-only run inventory using the pipeline's dry-run decisions."""
+    report, _, _ = preflight_inventory(cfg, only, reprocess, manual_offset)
+    return report
+
+
+def record_first_observations(cfg: cfgmod.Config, summary: Summary) -> None:
+    """Persist first stable-file sightings without promoting or encoding videos."""
+    if cfg.stability_minutes <= 0 or not cfg.stability_requires_prior_observation:
+        return
+    observer = Pipeline(cfg)
+    jobs = {root: discover_jobs(cfg, root) for root in (cfg.inbox_dir, cfg.raw_dir)}
+    for outcome in summary.outcomes:
+        if (outcome.status != S.WAITING_FOR_STABILITY
+                or not outcome.message.startswith("first observation of these files")):
+            continue
+        source = next(((root, found[outcome.pid]) for root, found in jobs.items()
+                       if outcome.pid in found and not found[outcome.pid].problem
+                       and found[outcome.pid].mom), None)
+        if source is None:
+            continue
+        root, job = source
+        folder = job.mom[0].parent
+        files = observer._files_under(folder)
+        if not files:
+            continue
+        try:
+            st = observer.store.load(outcome.pid, observer._iso())
+            # Repeat readiness checks under the lock: a transfer may have started since preflight.
+            wait = observer._check_ready(st, folder, files, marker=root == cfg.inbox_dir)
+        except OSError as exc:
+            log.warning("%s: could not record stability observation: %s", outcome.pid, exc)
+            continue
+        if wait and wait[1].startswith("first observation of these files"):
+            log.info("%s: recorded first stability observation for a later run", outcome.pid)
 
 
 def request_approval() -> bool:
@@ -289,6 +330,8 @@ def main(argv=None) -> int:
     if args.manual_offset is not None and not (args.participant and len(args.participant) == 1):
         print("CONFIG ERROR: --manual-offset requires exactly one --participant", file=sys.stderr)
         return 3
+    if args.yolo:
+        cfg.stability_minutes = 0
     setup_logging(args.log_level, None)
 
     if not cfg.followup_root.is_dir():
@@ -315,13 +358,24 @@ def main(argv=None) -> int:
         if not videos:
             log.info("  (none)")
     else:
+        report, has_work, preview = preflight_inventory(cfg, args.participant, args.reprocess,
+                                                       args.manual_offset)
+        for line in report.splitlines():
+            log.info("%s", line)
+        if not has_work:
+            if cfg.stability_minutes > 0 and cfg.stability_requires_prior_observation:
+                try:
+                    with RunLock(cfg.lock_file, cfg.lock_stale_hours):
+                        record_first_observations(cfg, preview)
+                except RuntimeError as exc:
+                    log.error("%s", exc)
+                    return 3
+            log.info("No videos eligible for processing; no approval needed.")
+            return preview.exit_code()
         if cfg.lock_file.exists():
             log.error("run lock already exists: %s", cfg.lock_file)
             return 3
-        report = preflight_report(cfg, args.participant, args.reprocess, args.manual_offset)
-        for line in report.splitlines():
-            log.info("%s", line)
-        if not request_approval():
+        if cfg.require_approval and not args.yolo and not request_approval():
             log.info("Workflow cancelled; no processing was started.")
             return 1
         setup_logging(args.log_level, cfg.log_file_dir)

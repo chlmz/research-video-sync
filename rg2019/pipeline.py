@@ -575,7 +575,9 @@ class Pipeline:
         for key in keys:
             rec = files.get(key)
             f = out / rec["name"] if rec else None
-            if not rec or not f.is_file() or f.stat().st_size != rec["size"]:
+            suffix = "side_by_side" if key == "side_by_side" else f"{key}_synced"
+            if (not rec or rec["name"] != self._output_name(st["participant_id"], suffix)
+                    or not f.is_file() or f.stat().st_size != rec["size"]):
                 return False
         return True
 
@@ -681,6 +683,10 @@ class Pipeline:
             return est
 
     # ------------------------------------------------------------------ encoding
+    def _output_name(self, pid: str, suffix: str) -> str:
+        description = f"_{self.cfg.video_description}" if self.cfg.video_description else ""
+        return f"{pid}{description}_{suffix}.mp4"
+
     def _encode_all(self, pid, st, src, out: Path, offset: float) -> Outcome:
         cfg = self.cfg
         mt, ct = syncest.trim_plan(offset, cfg.encode.min_trim_seconds)
@@ -695,8 +701,12 @@ class Pipeline:
                 if not self._make_output(pid, st, files, out, role, src[role][0], src[role][1], trims[role]):
                     return Outcome(pid, S.OUTPUT_CONFLICT, st["message"])
             if cfg.create_side_by_side:
-                final = out / f"{pid}_side_by_side.mp4"
+                final = out / self._output_name(pid, "side_by_side")
                 rec = files.get("side_by_side")
+                if rec and rec["name"] != final.name:
+                    return self._fail(st, S.OUTPUT_CONFLICT,
+                                      "Configured video_description differs from recorded outputs; "
+                                      "use --reprocess to change output names.")
                 if not (rec and final.is_file() and final.stat().st_size == rec["size"]):
                     if final.exists():       # unrecorded or truncated/modified: never overwrite
                         return self._fail(st, S.OUTPUT_CONFLICT,
@@ -721,8 +731,13 @@ class Pipeline:
 
     def _make_output(self, pid, st, files, out, role, src_path, info, trim) -> bool:
         cfg = self.cfg
-        final = out / f"{pid}_{role}_synced.mp4"
+        final = out / self._output_name(pid, f"{role}_synced")
         rec = files.get(role)
+        if rec and rec["name"] != final.name:
+            self._fail(st, S.OUTPUT_CONFLICT,
+                       "Configured video_description differs from recorded outputs; "
+                       "use --reprocess to change output names.")
+            return False
         if rec and final.is_file() and final.stat().st_size == rec["size"]:
             return True                                   # already produced by an earlier (interrupted) run
         if final.exists():

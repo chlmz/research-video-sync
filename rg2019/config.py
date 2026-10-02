@@ -52,6 +52,7 @@ class Config:
     participant_id_regex: str = r"^ID\d{4,8}$"
     mom_pattern: str = "_mom"
     child_pattern: str = "_child"
+    video_description: str | None = None
     video_extensions: list[str] = field(default_factory=lambda: [".mp4", ".avi", ".mov", ".mkv"])
     require_ready_marker: bool = False
     ready_marker_name: str = "READY.txt"
@@ -59,6 +60,7 @@ class Config:
     stability_recheck_seconds: float = 5.0
     stability_requires_prior_observation: bool = True
     create_side_by_side: bool = False
+    require_approval: bool = True
     max_attempts: int = 3               # automatic retries for SYNC_FAILED / ENCODE_FAILED
     lock_stale_hours: float = 24.0
     ffmpeg: str = "ffmpeg"
@@ -136,6 +138,15 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
         raise ConfigError("mom_pattern and child_pattern must be non-empty")
     if cfg.mom_pattern.lower() == cfg.child_pattern.lower():
         raise ConfigError("mom_pattern and child_pattern must differ")
+    if cfg.video_description is not None:
+        if (not isinstance(cfg.video_description, str)
+                or len(cfg.video_description) > 80
+                or not re.fullmatch(r"[A-Za-z0-9]+(?:[ _-][A-Za-z0-9]+)*", cfg.video_description)):
+            raise ConfigError("video_description must be null or a filename-safe description "
+                              "(letters, digits, spaces, underscores or hyphens; max 80 characters)")
+        cfg.video_description = cfg.video_description.replace(" ", "_")
+    if not isinstance(cfg.require_approval, bool):
+        raise ConfigError("require_approval must be true or false")
     cfg.video_extensions = [e.lower() if e.startswith(".") else "." + e.lower()
                             for e in cfg.video_extensions]
     dirs = {cfg.inbox, cfg.raw, cfg.synced, cfg.logs_qc}

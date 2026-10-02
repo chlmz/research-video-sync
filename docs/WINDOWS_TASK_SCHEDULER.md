@@ -11,6 +11,8 @@ Everything it writes (state, CSV, log) goes to `99_LOGS_QC`, so it works with no
 1. Install Python 3.10+ (64-bit), then `pip install -r requirements.txt`.
 2. Install ffmpeg and check `ffmpeg -version` and `ffprobe -version` work.
 3. Copy `config.example.json` to `config.json`, edit it, and **run a dry run by hand first** (see README).
+   Set `"require_approval": false` explicitly for unattended real runs: the default `true` requires someone to type `yes` when videos are eligible. A run with no eligible videos prints the report and exits without prompting. Do not use `--yolo` merely to skip approval: it also disables the stability-minute wait for that invocation (transfer-file blocking and the growth re-check remain).
+   The optional `"video_description": null` leaves output filenames unchanged. A filename-safe value such as `"pilot visit"` adds `_pilot_visit` after the ID to the mom, child and optional side-by-side output names. Changing this after syncing requires `--reprocess` to archive prior outputs.
 4. Run one real run by hand on a test participant and read `99_LOGS_QC\pipeline_status.csv`.
 5. Find the explicit paths you will use (do not rely on `PATH`, which a scheduled task may not see):
 
@@ -67,7 +69,7 @@ schtasks /Create /TN "RG2019 daily video sync" /SC DAILY /ST 02:00 /RL LIMITED /
 * The pipeline writes its own log file: `FOLLOWUP_ROOT\99_LOGS_QC\logs\pipeline_YYYY-MM-DD.log`
   (UTF-8, appended), plus per-participant state in `99_LOGS_QC\state\` and `pipeline_status.csv`.
 * The end-of-run summary (newly completed / skipped / waiting / manual review / failed, with IDs) is
-  written to that log. **This is the file to read the next morning.**
+  written to that log when processing starts. If no videos are eligible, the pre-run report is printed to standard output before the command exits; capture standard output if you need to retain those reports.
 * Optional: also capture anything printed before logging starts (e.g. a Python crash) by wrapping the
   command in `cmd /c` with redirection:
 
@@ -83,6 +85,7 @@ schtasks /Create /TN "RG2019 daily video sync" /SC DAILY /ST 02:00 /F ^
 | Code | Meaning |
 |---|---|
 | `0x0` | Finished; nothing needs a human (waiting participants are normal). |
+| `0x1` | A real run with eligible videos was cancelled at the approval prompt (set `require_approval` to `false` for unattended tasks). |
 | `0x2` | Finished, but at least one participant needs **manual review** or **failed** - read the log. |
 | `0x3` | Nothing was processed: config error, `ffmpeg`/`ffprobe` missing, project drive not available, or another run holds the lock. |
 
