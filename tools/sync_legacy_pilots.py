@@ -4,9 +4,17 @@
 Purpose
 -------
 Scan the preserved historical pilot archive recursively, identify participant IDs from
-folder names and mother/child roles from human-readable video filenames, skip cases that
-already have a historical synchronised mom+child pair, and create normalised outputs in a
-separate curated folder.
+folder names and mother/child roles from human-readable video filenames, and create
+normalised curated outputs in a separate folder.
+
+Two processing paths:
+
+A) Raw pair (no historical sync found): use the sync estimator to align mom+child,
+   re-encode both, and create a side-by-side.
+
+B) Historical sync pair found (files in a sync/sincro subfolder with clear roles):
+   re-encode the already-synced files with offset=0 and create a new side-by-side.
+   The historical files are NEVER altered.
 
 This tool is intentionally separate from ``pipeline_rg2019.py``. It NEVER moves, renames,
 deletes or writes inside ``00_SOURCE_LEGACY``.
@@ -92,6 +100,22 @@ class Case:
     child: list[Path] = field(default_factory=list)
     ambiguous: list[Path] = field(default_factory=list)
     unclassified: list[Path] = field(default_factory=list)
+
+
+@dataclass
+class ExistingSyncedPair:
+    """Files found inside a sync-named subfolder for one participant."""
+    pid: ParticipantId
+    mom: list[Path] = field(default_factory=list)
+    child: list[Path] = field(default_factory=list)
+    ambiguous: list[Path] = field(default_factory=list)
+    unclassified: list[Path] = field(default_factory=list)
+
+    @property
+    def is_clear(self) -> bool:
+        """Exactly one mom, one child, nothing ambiguous or unclassified."""
+        return (len(self.mom) == 1 and len(self.child) == 1
+                and not self.ambiguous and not self.unclassified)
 
 
 @dataclass
@@ -200,9 +224,14 @@ def _under_derived_area(path: Path, root: Path) -> bool:
     return any(_is_derived_component(part) for part in rel.parts[:-1])
 
 
-def find_existing_synced_ids(source_root: Path) -> set[str]:
-    """IDs with an existing historical synchronised mother+child pair."""
-    roles: dict[str, set[str]] = {}
+def find_existing_synced_pairs(source_root: Path) -> dict[str, ExistingSyncedPair]:
+    """All video files in sync-named subfolders, grouped by participant ID.
+
+    Returns every participant that has at least one video inside a sync/sincro folder,
+    regardless of whether the role can be determined.  Use ``pair.is_clear`` to check
+    whether the pair is unambiguously importable.
+    """
+    pairs: dict[str, ExistingSyncedPair] = {}
     for p in source_root.rglob("*"):
         if not p.is_file() or p.suffix.lower() not in VIDEO_EXTENSIONS:
             continue
@@ -213,10 +242,22 @@ def find_existing_synced_ids(source_root: Path) -> set[str]:
         if hit is None:
             continue
         pid, _ = hit
+        pair = pairs.setdefault(pid.key, ExistingSyncedPair(pid=pid))
         role = detect_role(p)
-        if role in {"mom", "child"}:
-            roles.setdefault(pid.key, set()).add(role)
-    return {key for key, found in roles.items() if {"mom", "child"} <= found}
+        if role == "mom":
+            pair.mom.append(p)
+        elif role == "child":
+            pair.child.append(p)
+        elif role == "ambiguous":
+            pair.ambiguous.append(p)
+        else:
+            pair.unclassified.append(p)
+    return pairs
+
+
+def find_existing_synced_ids(source_root: Path) -> set[str]:
+    """IDs with an existing historical synchronised mother+child pair (clear roles only)."""
+    return {key for key, pair in find_existing_synced_pairs(source_root).items() if pair.is_clear}
 
 
 def discover_cases(source_root: Path) -> dict[str, Case]:
@@ -254,6 +295,17 @@ def output_complete(output_root: Path, pid: str) -> bool:
     return all(p.is_file() and p.stat().st_size > 0 for p in expected)
 
 
+def output_needs_side_by_side(output_root: Path, pid: str) -> bool:
+    """True when mom+child curated outputs exist but the side-by-side is missing."""
+    folder = output_root / pid
+    mom = folder / f"{pid}_mom_synced.mp4"
+    child = folder / f"{pid}_child_synced.mp4"
+    sbs = folder / f"{pid}_side_by_side.mp4"
+    return (mom.is_file() and mom.stat().st_size > 0
+            and child.is_file() and child.stat().st_size > 0
+            and not sbs.exists())
+
+
 def output_conflict(output_root: Path, pid: str) -> bool:
     folder = output_root / pid
     if not folder.exists():
@@ -285,6 +337,23 @@ def probe_pair(cfg: Config, mom: Path, child: Path) -> dict[str, tuple[Path, Med
             raise MediaError(f"{path.name}: missing readable video stream/duration")
         if not info.has_audio:
             raise MediaError(f"{path.name}: no audio stream; automatic synchronisation is impossible")
+        found[role] = (path, info)
+    return found
+
+
+def probe_video_pair(cfg: Config, mom: Path, child: Path) -> dict[str, tuple[Path, MediaInfo]]:
+    """Probe an already-synchronised pair for import.
+
+    Like ``probe_pair`` but does not require audio for sync estimation; audio is still
+    validated because it is needed for side-by-side creation.
+    """
+    found: dict[str, tuple[Path, MediaInfo]] = {}
+    for role, path in (("mom", mom), ("child", child)):
+        info = media.probe(cfg, path)
+        if not info.has_video or not info.duration or info.duration <= 0:
+            raise MediaError(f"{path.name}: missing readable video stream/duration")
+        if not info.has_audio:
+            raise MediaError(f"{path.name}: no audio stream; required for side-by-side creation")
         found[role] = (path, info)
     return found
 
@@ -351,6 +420,25 @@ def encode_outputs(
 
         side_part = side_final.with_name(side_final.name + ".partial")
         log.info("%s: writing %s", pid, side_final.name)
+        media.side_by_side(cfg, mom_final, child_final, side_part)
+        _commit(cfg, side_part, side_final, None)
+    except Exception:
+        for p in out.glob("*.partial"):
+            p.unlink(missing_ok=True)
+        raise
+
+
+def create_side_by_side_only(cfg: Config, pid: str, output_root: Path) -> None:
+    """Create the side-by-side from existing curated mom+child outputs (no re-encode)."""
+    out = output_root / pid
+    mom_final = out / f"{pid}_mom_synced.mp4"
+    child_final = out / f"{pid}_child_synced.mp4"
+    side_final = out / f"{pid}_side_by_side.mp4"
+    if side_final.exists():
+        raise FileExistsError(f"{side_final}: side-by-side already exists")
+    side_part = side_final.with_name(side_final.name + ".partial")
+    try:
+        log.info("%s: writing %s from existing curated pair", pid, side_final.name)
         media.side_by_side(cfg, mom_final, child_final, side_part)
         _commit(cfg, side_part, side_final, None)
     except Exception:
@@ -441,8 +529,22 @@ def main(argv=None) -> int:
         for exe, version in versions.items():
             log.info("%s: %s", exe, version)
 
-    existing_synced = find_existing_synced_ids(source_root)
+    synced_pairs = find_existing_synced_pairs(source_root)
     cases = discover_cases(source_root)
+
+    # Merge all sources so participants with only sync-folder or partial output files are covered.
+    all_pids: dict[str, ParticipantId] = {k: v.pid for k, v in cases.items()}
+    for key, pair in synced_pairs.items():
+        if key not in all_pids:
+            all_pids[key] = pair.pid
+    # Also include participants found only in the output root (e.g. prior partial runs).
+    if output_root.is_dir():
+        for d in output_root.iterdir():
+            if not d.is_dir() or d.name.startswith("_"):
+                continue
+            pid_obj = participant_id_from_component(d.name)
+            if pid_obj is not None and pid_obj.key not in all_pids:
+                all_pids[pid_obj.key] = pid_obj
 
     wanted: set[str] | None = None
     if args.participant:
@@ -456,22 +558,69 @@ def main(argv=None) -> int:
 
     results: list[Result] = []
 
-    for key, case in sorted(cases.items(), key=lambda kv: kv[1].pid.display.lower()):
+    for key in sorted(all_pids, key=lambda k: all_pids[k].display.lower()):
         if wanted is not None and key not in wanted:
             continue
-        pid = case.pid.display
+        pid = all_pids[key].display
+        case = cases.get(key)
+        pair = synced_pairs.get(key)
 
         if output_complete(output_root, pid):
-            results.append(Result(pid, "SKIP_OUTPUT_COMPLETE", "curated outputs already exist"))
+            results.append(Result(pid, "ALREADY_COMPLETE", "all three curated outputs exist"))
+            continue
+        if output_needs_side_by_side(output_root, pid):
+            if args.dry_run:
+                results.append(Result(pid, "WOULD_ADD_SIDE_BY_SIDE",
+                                      "curated mom+child exist; only side-by-side is missing"))
+            else:
+                try:
+                    create_side_by_side_only(cfg, pid, output_root)
+                    results.append(Result(pid, "ADD_SIDE_BY_SIDE",
+                                          "side-by-side created from existing curated pair"))
+                except (MediaError, OSError, ValueError, FileExistsError) as exc:
+                    results.append(Result(pid, "FAILED", str(exc)))
             continue
         if output_conflict(output_root, pid):
             results.append(Result(pid, "REVIEW_OUTPUT_CONFLICT",
                                   "partial/unrecognised curated outputs exist; nothing overwritten"))
             continue
-        if key in existing_synced:
-            results.append(Result(pid, "SKIP_LEGACY_SYNC_EXISTS",
-                                  "historical synchronised mom+child pair already exists"))
+
+        if pair is not None:
+            if pair.is_clear:
+                mom, child = pair.mom[0], pair.child[0]
+                if args.dry_run:
+                    results.append(Result(
+                        pid, "WOULD_IMPORT_EXISTING_SYNC",
+                        "historical synced mom+child found; will re-encode and create side-by-side",
+                        str(mom), str(child),
+                    ))
+                else:
+                    try:
+                        src = probe_video_pair(cfg, mom, child)
+                        encode_outputs(cfg, pid, output_root, src, 0.0)
+                        results.append(Result(
+                            pid, "IMPORT_EXISTING_SYNC",
+                            "imported historical synced pair; side-by-side created",
+                            str(mom), str(child),
+                        ))
+                    except (MediaError, OSError, ValueError, FileExistsError) as exc:
+                        results.append(Result(pid, "FAILED", str(exc), str(mom), str(child)))
+            else:
+                details: list[str] = []
+                if len(pair.mom) != 1:
+                    details.append(f"mom={len(pair.mom)}")
+                if len(pair.child) != 1:
+                    details.append(f"child={len(pair.child)}")
+                if pair.ambiguous:
+                    details.append("ambiguous=" + ", ".join(p.name for p in pair.ambiguous))
+                if pair.unclassified:
+                    details.append("unclassified=" + ", ".join(p.name for p in pair.unclassified))
+                results.append(Result(pid, "REVIEW_SYNCED_AMBIGUOUS", "; ".join(details)))
             continue
+
+        if case is None:
+            continue
+
         if case.ambiguous:
             results.append(Result(
                 pid, "REVIEW_AMBIGUOUS_ROLE",
