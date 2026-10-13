@@ -143,7 +143,7 @@ def test_find_existing_synced_pairs_ambiguous_filename_in_sync_folder(tmp_path):
     root = tmp_path / "00_SOURCE_LEGACY"
     synced = root / "ID100392" / "sincronizado"
     synced.mkdir(parents=True)
-    (synced / "mom_child_combined.mp4").write_bytes(b"x")
+    (synced / "mothercam_childcam.mp4").write_bytes(b"x")  # ambiguous role (both patterns)
     (synced / "child.mp4").write_bytes(b"x")
 
     pairs = legacy.find_existing_synced_pairs(root)
@@ -337,3 +337,144 @@ def test_add_side_by_side_creates_sbs_from_existing_curated_pair(tmp_path, video
     assert (out_pid / "ID100024_child_synced.mp4").is_file()
     assert (out_pid / "ID100024_side_by_side.mp4").is_file()
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# ExistingSyncedPair.is_clear — relaxed logic (spec §1–3)
+# ---------------------------------------------------------------------------
+
+def test_clear_pair_with_brinde_extra_is_clear(tmp_path):
+    """mom + child + brinde/combined derivative → is_clear; derivative tracked separately."""
+    root = tmp_path / "00_SOURCE_LEGACY"
+    synced = root / "IDPiloto006" / "videos sync"
+    synced.mkdir(parents=True)
+    (synced / "IDPiloto0006_momview.mp4").write_bytes(b"x")
+    (synced / "IDPiloto0006_childview.mp4").write_bytes(b"x")
+    (synced / "videobrinde.mp4").write_bytes(b"x")
+
+    pairs = legacy.find_existing_synced_pairs(root)
+    pair = pairs["idpiloto:6"]
+    assert pair.is_clear
+    assert len(pair.mom) == 1
+    assert len(pair.child) == 1
+    assert len(pair.derivative) == 1
+    assert pair.derivative[0].name == "videobrinde.mp4"
+    assert not pair.unclassified
+
+
+def test_clear_pair_with_unclassified_extras_is_still_clear(tmp_path):
+    """mom + child + truly-unclassified extras → is_clear; unclassified tracked but not blocking."""
+    root = tmp_path / "00_SOURCE_LEGACY"
+    synced = root / "IDPiloto005" / "videos sync"
+    synced.mkdir(parents=True)
+    (synced / "IDpiloto0005_momview.mp4").write_bytes(b"x")
+    (synced / "IDpiloto0005_childview.mp4").write_bytes(b"x")
+    (synced / "rafa_liz.mp4").write_bytes(b"x")
+    (synced / "rafa_liz_clip.mp4").write_bytes(b"x")
+
+    pairs = legacy.find_existing_synced_pairs(root)
+    pair = pairs["idpiloto:5"]
+    assert pair.is_clear
+    assert len(pair.mom) == 1
+    assert len(pair.child) == 1
+    assert len(pair.unclassified) == 2
+
+
+def test_two_moms_not_clear(tmp_path):
+    """Two mom files + one child → not is_clear."""
+    root = tmp_path / "00_SOURCE_LEGACY"
+    synced = root / "ID100392" / "sincronizado"
+    synced.mkdir(parents=True)
+    (synced / "motherview_cam1.mp4").write_bytes(b"x")
+    (synced / "motherview_cam2.mp4").write_bytes(b"x")
+    (synced / "child.mp4").write_bytes(b"x")
+
+    pair = legacy.find_existing_synced_pairs(root)["id:100392"]
+    assert not pair.is_clear
+    assert len(pair.mom) == 2
+
+
+def test_two_children_not_clear(tmp_path):
+    """One mom + two child files → not is_clear."""
+    root = tmp_path / "00_SOURCE_LEGACY"
+    synced = root / "ID100392" / "sincronizado"
+    synced.mkdir(parents=True)
+    (synced / "mom.mp4").write_bytes(b"x")
+    (synced / "child1.mp4").write_bytes(b"x")
+    (synced / "child2.mp4").write_bytes(b"x")
+
+    pair = legacy.find_existing_synced_pairs(root)["id:100392"]
+    assert not pair.is_clear
+    assert len(pair.child) == 2
+
+
+def test_ambiguous_role_file_not_clear(tmp_path):
+    """A file matching both mom+child patterns in a sync folder → not is_clear (ambiguous)."""
+    root = tmp_path / "00_SOURCE_LEGACY"
+    synced = root / "ID100392" / "sincronizado"
+    synced.mkdir(parents=True)
+    (synced / "mom.mp4").write_bytes(b"x")
+    (synced / "child.mp4").write_bytes(b"x")
+    (synced / "mothercam_childcam.mp4").write_bytes(b"x")
+
+    pair = legacy.find_existing_synced_pairs(root)["id:100392"]
+    assert not pair.is_clear
+    assert len(pair.ambiguous) == 1
+
+
+def test_probe_video_pair_raises_duration_mismatch(tmp_path, monkeypatch):
+    """probe_video_pair raises DurationMismatch when durations differ materially."""
+    from rg2019.media import MediaInfo
+    from tools.sync_legacy_pilots import (
+        probe_video_pair, DurationMismatch, load_config,
+        SYNCED_PAIR_DURATION_TOLERANCE_SECONDS,
+    )
+    import rg2019.media as _media
+
+    cfg = load_config(None, None, None)
+    mom_path = tmp_path / "mom.mp4"
+    child_path = tmp_path / "child.mp4"
+    mom_path.write_bytes(b"fake")
+    child_path.write_bytes(b"fake")
+
+    durations = {mom_path.name: 100.0, child_path.name: 100.0 + SYNCED_PAIR_DURATION_TOLERANCE_SECONDS + 1.0}
+
+    def _fake_probe(cfg, path):
+        d = durations[path.name]
+        return MediaInfo(
+            size_bytes=4, duration=d, format_name="mp4", format_start=0.0,
+            video_codec="h264", audio_codec="aac", audio_rate=44100, audio_channels=2,
+        )
+
+    monkeypatch.setattr(_media, "probe", _fake_probe)
+
+    import pytest
+    with pytest.raises(DurationMismatch):
+        probe_video_pair(cfg, mom_path, child_path)
+
+
+def test_dry_run_would_import_existing_sync_for_pair_with_extras(tmp_path, capsys):
+    """Clear pair with brinde derivative → WOULD_IMPORT_EXISTING_SYNC; derivative tracked in pair."""
+    source = tmp_path / "00_SOURCE_LEGACY"
+    output = tmp_path / "01_CURATED"
+    output.mkdir(parents=True)
+
+    synced = source / "IDPiloto006" / "videos sync"
+    synced.mkdir(parents=True)
+    (synced / "IDPiloto0006_momview.mp4").write_bytes(b"fake")
+    (synced / "IDPiloto0006_childview.mp4").write_bytes(b"fake")
+    (synced / "videobrinde.mp4").write_bytes(b"fake")
+
+    rc = legacy.main([
+        "--dry-run",
+        "--source-root", str(source),
+        "--output-root", str(output),
+    ])
+    assert "WOULD_IMPORT_EXISTING_SYNC" in capsys.readouterr().out
+    assert rc == 0
+
+    # The pair is classified correctly: clear, with the brinde file in derivative.
+    pair = legacy.find_existing_synced_pairs(source)["idpiloto:6"]
+    assert pair.is_clear
+    assert len(pair.derivative) == 1
+    assert pair.derivative[0].name == "videobrinde.mp4"

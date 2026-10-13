@@ -49,6 +49,15 @@ log = logging.getLogger("legacy_pilots")
 
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
 
+# Maximum allowed duration difference between an already-synced mom and child.
+# Historical files that were properly synchronised should have identical (or nearly
+# identical) durations. A larger gap suggests mismatched files or a corrupt pair.
+SYNCED_PAIR_DURATION_TOLERANCE_SECONDS: float = 2.0
+
+
+class DurationMismatch(MediaError):
+    """Mom and child durations differ beyond the tolerance for an already-synced pair."""
+
 DERIVED_DIR_TERMS = {
     "sync",
     "videos sync",
@@ -110,12 +119,16 @@ class ExistingSyncedPair:
     child: list[Path] = field(default_factory=list)
     ambiguous: list[Path] = field(default_factory=list)
     unclassified: list[Path] = field(default_factory=list)
+    derivative: list[Path] = field(default_factory=list)  # brinde/combined/side-by-side files
 
     @property
     def is_clear(self) -> bool:
-        """Exactly one mom, one child, nothing ambiguous or unclassified."""
-        return (len(self.mom) == 1 and len(self.child) == 1
-                and not self.ambiguous and not self.unclassified)
+        """Exactly one mom, one child, no ambiguous files.
+
+        Extra unclassified or derivative (brinde/combined) files do NOT prevent a clear
+        pair from being importable — they are reported in QC detail but otherwise ignored.
+        """
+        return len(self.mom) == 1 and len(self.child) == 1 and not self.ambiguous
 
 
 @dataclass
@@ -243,6 +256,9 @@ def find_existing_synced_pairs(source_root: Path) -> dict[str, ExistingSyncedPai
             continue
         pid, _ = hit
         pair = pairs.setdefault(pid.key, ExistingSyncedPair(pid=pid))
+        if _looks_side_by_side(p):
+            pair.derivative.append(p)
+            continue
         role = detect_role(p)
         if role == "mom":
             pair.mom.append(p)
@@ -345,7 +361,8 @@ def probe_video_pair(cfg: Config, mom: Path, child: Path) -> dict[str, tuple[Pat
     """Probe an already-synchronised pair for import.
 
     Like ``probe_pair`` but does not require audio for sync estimation; audio is still
-    validated because it is needed for side-by-side creation.
+    validated because it is needed for side-by-side creation.  Raises ``DurationMismatch``
+    when mom and child durations differ by more than ``SYNCED_PAIR_DURATION_TOLERANCE_SECONDS``.
     """
     found: dict[str, tuple[Path, MediaInfo]] = {}
     for role, path in (("mom", mom), ("child", child)):
@@ -355,6 +372,14 @@ def probe_video_pair(cfg: Config, mom: Path, child: Path) -> dict[str, tuple[Pat
         if not info.has_audio:
             raise MediaError(f"{path.name}: no audio stream; required for side-by-side creation")
         found[role] = (path, info)
+    mom_dur = found["mom"][1].duration or 0.0
+    child_dur = found["child"][1].duration or 0.0
+    diff = abs(mom_dur - child_dur)
+    if diff > SYNCED_PAIR_DURATION_TOLERANCE_SECONDS:
+        raise DurationMismatch(
+            f"mom {mom_dur:.3f}s vs child {child_dur:.3f}s — "
+            f"difference {diff:.3f}s exceeds {SYNCED_PAIR_DURATION_TOLERANCE_SECONDS}s tolerance"
+        )
     return found
 
 
@@ -588,12 +613,13 @@ def main(argv=None) -> int:
         if pair is not None:
             if pair.is_clear:
                 mom, child = pair.mom[0], pair.child[0]
+                extras = [p.name for p in pair.unclassified + pair.derivative]
+                base_detail = "historical synced mom+child found; will re-encode and create side-by-side"
+                if extras:
+                    base_detail += "; extras (ignored): " + ", ".join(extras)
                 if args.dry_run:
-                    results.append(Result(
-                        pid, "WOULD_IMPORT_EXISTING_SYNC",
-                        "historical synced mom+child found; will re-encode and create side-by-side",
-                        str(mom), str(child),
-                    ))
+                    results.append(Result(pid, "WOULD_IMPORT_EXISTING_SYNC", base_detail,
+                                          str(mom), str(child)))
                 else:
                     try:
                         src = probe_video_pair(cfg, mom, child)
@@ -603,14 +629,17 @@ def main(argv=None) -> int:
                             "imported historical synced pair; side-by-side created",
                             str(mom), str(child),
                         ))
+                    except DurationMismatch as exc:
+                        results.append(Result(pid, "REVIEW_DURATION_MISMATCH",
+                                              str(exc), str(mom), str(child)))
                     except (MediaError, OSError, ValueError, FileExistsError) as exc:
                         results.append(Result(pid, "FAILED", str(exc), str(mom), str(child)))
             else:
                 details: list[str] = []
                 if len(pair.mom) != 1:
-                    details.append(f"mom={len(pair.mom)}")
+                    details.append(f"mom={len(pair.mom)}" + (": " + ", ".join(p.name for p in pair.mom) if pair.mom else ""))
                 if len(pair.child) != 1:
-                    details.append(f"child={len(pair.child)}")
+                    details.append(f"child={len(pair.child)}" + (": " + ", ".join(p.name for p in pair.child) if pair.child else ""))
                 if pair.ambiguous:
                     details.append("ambiguous=" + ", ".join(p.name for p in pair.ambiguous))
                 if pair.unclassified:
