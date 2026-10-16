@@ -6,6 +6,8 @@ import hashlib
 import json
 import shutil
 import subprocess
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, asdict
 from fractions import Fraction
 from pathlib import Path
@@ -13,6 +15,36 @@ from pathlib import Path
 import numpy as np
 
 from .config import Config
+from .processes import MediaCancelled, ProcessController
+
+_scope_lock = threading.Lock()
+_active_scope: ProcessController | None = None
+
+
+def cancel_processes() -> None:
+    """Cancel the active execution scope, including commands in other workers."""
+    controller = _active_scope
+    if controller is not None:
+        controller.cancel()
+
+
+@contextmanager
+def process_scope():
+    """Own every worker's media child until exit; cancel before settling workers."""
+    global _active_scope
+    with _scope_lock:
+        if _active_scope is not None:
+            raise RuntimeError("a media process scope is already active")
+        controller = ProcessController()
+        _active_scope = controller
+    try:
+        yield controller
+    finally:
+        try:
+            controller.close()
+        finally:
+            with _scope_lock:
+                _active_scope = None
 
 
 class MediaError(RuntimeError):
@@ -21,8 +53,12 @@ class MediaError(RuntimeError):
 
 def _run(cmd: list[str], what: str) -> subprocess.CompletedProcess:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", stdin=subprocess.DEVNULL)
+        controller = _active_scope
+        if controller is not None:
+            r = controller.run(cmd)
+        else:
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", stdin=subprocess.DEVNULL)
     except FileNotFoundError as exc:
         raise MediaError(f"{what}: executable not found: {cmd[0]}") from exc
     except OSError as exc:
@@ -34,15 +70,35 @@ def _run(cmd: list[str], what: str) -> subprocess.CompletedProcess:
 
 
 def check_tools(cfg: Config) -> dict[str, str]:
-    """Verify ffmpeg and ffprobe exist and run.  Returns their version lines."""
+    """Verify FFmpeg tools; use managed binaries for default names missing from PATH."""
+    paths = {"ffmpeg": shutil.which(cfg.ffmpeg), "ffprobe": shutil.which(cfg.ffprobe)}
+    missing = [name for name, path in paths.items() if path is None]
+    custom_missing = [name for name in missing if getattr(cfg, name) != name]
+    if custom_missing:
+        name = custom_missing[0]
+        exe = getattr(cfg, name)
+        raise MediaError(f"'{exe}' was not found in PATH (install ffmpeg and add it to PATH, "
+                         f"or set an absolute path in the config)")
+    if missing:
+        try:
+            from static_ffmpeg import run
+
+            bundled_ffmpeg, bundled_ffprobe = run.get_or_fetch_platform_executables_else_raise()
+        except (ImportError, OSError, RuntimeError) as exc:
+            names = " and ".join(missing)
+            raise MediaError(f"'{names}' were not found in PATH and managed FFmpeg binaries "
+                             f"could not be installed: {exc}") from exc
+        bundled = {"ffmpeg": bundled_ffmpeg, "ffprobe": bundled_ffprobe}
+        for name in missing:
+            paths[name] = str(bundled[name])
+            setattr(cfg, name, str(paths[name]))
+
     out = {}
-    for exe in (cfg.ffmpeg, cfg.ffprobe):
-        path = shutil.which(exe)
+    for name, path in paths.items():
         if path is None:
-            raise MediaError(f"'{exe}' was not found in PATH (install ffmpeg and add it to PATH, "
-                             f"or set an absolute path in the config)")
-        r = _run([path, "-version"], f"{exe} -version")
-        out[exe] = r.stdout.splitlines()[0] if r.stdout else path
+            raise MediaError(f"'{getattr(cfg, name)}' was not found in PATH")
+        r = _run([path, "-version"], f"{name} -version")
+        out[getattr(cfg, name)] = r.stdout.splitlines()[0] if r.stdout else path
     return out
 
 

@@ -52,14 +52,17 @@ class Config:
     participant_id_regex: str = r"^ID\d{4,8}$"
     mom_pattern: str = "_mom"
     child_pattern: str = "_child"
+    video_description: str | None = None
     video_extensions: list[str] = field(default_factory=lambda: [".mp4", ".avi", ".mov", ".mkv"])
     require_ready_marker: bool = False
     ready_marker_name: str = "READY.txt"
-    stability_minutes: float = 120.0
+    stability_minutes: float = 0.0
     stability_recheck_seconds: float = 5.0
     stability_requires_prior_observation: bool = True
-    create_side_by_side: bool = False
+    create_side_by_side: bool = True
+    require_approval: bool = True
     max_attempts: int = 3               # automatic retries for SYNC_FAILED / ENCODE_FAILED
+    max_parallel_pairs: int = 2
     lock_stale_hours: float = 24.0
     ffmpeg: str = "ffmpeg"
     ffprobe: str = "ffprobe"
@@ -117,6 +120,17 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
 
     `path_cls` exists so tests can exercise Windows path semantics (PureWindowsPath) on any OS.
     """
+    if not isinstance(data, dict):
+        raise ConfigError("Config must be a JSON object")
+    try:
+        return _from_dict(data, path_cls)
+    except ConfigError:
+        raise
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ConfigError(f"Invalid config settings: {exc}") from exc
+
+
+def _from_dict(data: dict[str, Any], path_cls: type[PurePath]) -> Config:
     data = dict(data)
     if "followup_root" not in data:
         raise ConfigError("'followup_root' is required")
@@ -136,6 +150,17 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
         raise ConfigError("mom_pattern and child_pattern must be non-empty")
     if cfg.mom_pattern.lower() == cfg.child_pattern.lower():
         raise ConfigError("mom_pattern and child_pattern must differ")
+    if cfg.video_description is not None:
+        if (not isinstance(cfg.video_description, str)
+                or len(cfg.video_description) > 80
+                or not re.fullmatch(r"[A-Za-z0-9]+(?:[ _-][A-Za-z0-9]+)*", cfg.video_description)):
+            raise ConfigError("video_description must be null or a filename-safe description "
+                              "(letters, digits, spaces, underscores or hyphens; max 80 characters)")
+        cfg.video_description = cfg.video_description.replace(" ", "_")
+    if not isinstance(cfg.require_approval, bool):
+        raise ConfigError("require_approval must be true or false")
+    if type(cfg.max_parallel_pairs) is not int or cfg.max_parallel_pairs < 1:
+        raise ConfigError("max_parallel_pairs must be a positive integer")
     cfg.video_extensions = [e.lower() if e.startswith(".") else "." + e.lower()
                             for e in cfg.video_extensions]
     dirs = {cfg.inbox, cfg.raw, cfg.synced, cfg.logs_qc}
@@ -149,6 +174,13 @@ def load(path: Path) -> Config:
         data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
         raise ConfigError(f"Config file not found: {path}") from exc
+    except OSError as exc:
+        raise ConfigError(f"Cannot read config file ({path}): {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Config file is not valid JSON ({path}): {exc}") from exc
-    return from_dict(data)
+    except UnicodeError as exc:
+        raise ConfigError(f"Config file is not valid UTF-8 ({path}): {exc}") from exc
+    try:
+        return from_dict(data)
+    except ConfigError as exc:
+        raise ConfigError(f"Invalid config settings ({path}): {exc}") from exc
