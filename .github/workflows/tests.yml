@@ -2,7 +2,7 @@ name: Python tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feature/gpis-recursive-discovery]
   workflow_dispatch:
 
 concurrency:
@@ -32,5 +32,18 @@ jobs:
         run: choco install ffmpeg -y --no-progress
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.txt
+      - name: Verify Python and media tools
+        run: |
+          python -c "import sys; assert sys.version_info[:2] == (3, 12); print(sys.version)"
+          ffmpeg -version
+          ffprobe -version
+          ffmpeg -nostdin -v error -f lavfi -i testsrc=size=160x120:rate=10 -f lavfi -i sine=frequency=440 -t 1 -c:v libx264 -pix_fmt yuv420p -c:a aac -f null -
       - name: Run complete suite
-        run: python -m pytest
+        run: python -m pytest -ra --junitxml="${{ runner.temp }}/pytest-results.xml"
+      - name: Preserve test counts and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-${{ matrix.os }}
+          path: ${{ runner.temp }}/pytest-results.xml
+          if-no-files-found: warn
