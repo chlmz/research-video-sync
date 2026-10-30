@@ -1,5 +1,9 @@
 # research-video-sync
 
+Experimental 2026 recursive field inventory: see
+[FIELD_DISCOVERY.md](docs/FIELD_DISCOVERY.md). This read-only detector is separate
+from the processing pipeline below and does not authorize scientific processing.
+
 Audio-based synchronisation of the two camera recordings (mother / child) of the RG2019 follow-up
 study, designed for a **Synology-Drive-synchronised project folder** on a private Windows workstation.
 
