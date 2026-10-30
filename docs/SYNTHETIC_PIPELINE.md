@@ -111,6 +111,14 @@ distintos de la misma sesión, para que no se sobrescriban en NTFS. Las asercion
 se conservan. El estado de validación posterior debe comprobarse en los checks
 del PR #5; un fallo del runner no equivale automáticamente a un fallo científico.
 
+Tras esas correcciones, la ejecución 41110376243 pasó 195/195 en Ubuntu y
+194/195 en Windows, sin omisiones. El único fallo restante era que `bash` resolvía
+al lanzador de WSL sin distribuciones instaladas. La workflow ahora comprueba Git
+Bash y antepone su directorio al PATH del runner antes de los tests; no instala
+WSL ni modifica el sistema científico. Los resúmenes de los jobs del PR #5
+registran los conteos exactos de la validación posterior y los artefactos JUnit
+permiten revisarlos de forma independiente.
+
 ## Límites y decisiones científicas
 
 El marcador no demuestra que un vídeo sea sintético. El operador debe usar
@@ -150,6 +158,7 @@ Estos pasos son para una tarea posterior explícita, solo con fixtures locales:
 5. Probar separadamente semántica Windows de archivos abiertos, finalización del
    árbol de FFmpeg y liberación del lock tras matar el proceso. El test automatizado
    de PermissionError es una simulación, no prueba de esas semánticas reales.
-6. Conservar logs sintéticos y presentar evidencia para revisión. Cualquier prueba
+6. Conservar logs sintéticos y presentar evidencia para revisión. Windows Server
+   2022 de GitHub Actions no sustituye Windows 11 del GPIS-SERVER. Cualquier prueba
    posterior sobre SMB, identidades o publicación científica requiere un alcance
    específico y las autorizaciones de escritura correspondientes; no está incluida.
