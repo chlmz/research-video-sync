@@ -35,3 +35,29 @@ NotRun/technical result; NotApproved for scientific QC. Session/game identity an
 original paths/classification evidence remain in each job. Unnumbered games cannot
 be authorized by this contract. There is no automatic scientific approval and no
 change to the old StateStore or synthetic execution schema.
+
+## Milestone 3: storage protocol
+
+`storage.Inputs` exposes read/verified-copy only. Every input is rehashed after an
+exclusive bounded copy, with size/mtime checks and scratch-space reservation.
+RAW ingestion always raises. `storage.Results` uses participant / session digest /
+game / input fingerprint directories; each contains immutable attempt directories.
+`COMMITTED.json` references one manifest by SHA-256. Readers **must** use `inspect()`;
+the presence of an MP4 or directory is not a completed result. Manifests identify
+the original session text, sources, hashes, parameters, technical status and QC.
+
+This avoids assuming remote rename/lock equivalence. Concurrent writers use
+exclusive file creation; matching completed results are idempotent, divergent
+results block. A lost acknowledgement after completion is recovered by readback.
+An interrupted attempt before completion is retained and a new attempt may finish.
+A torn intent/completion record blocks for human investigation: never overwrite,
+delete, steal a remote claim or guess that a timeout means the write failed.
+
+The native transport accepts ordinary UNC paths on Windows without mapped drives
+or credential management. The integrated entrypoint remains restricted to marked
+local synthetic roots. Native SMB exclusive-create behavior, cache visibility,
+durability and reconnect semantics are **unvalidated**. Local simulations exercise
+failure paths, not Synology guarantees. OS filesystem calls can stall on SMB beyond
+application expectations; there is no claim of a hard network-I/O deadline.
+Trusted roots and an exclusive operational writer are required; containment checks
+do not defend against an adversary swapping reparse points between syscalls.
