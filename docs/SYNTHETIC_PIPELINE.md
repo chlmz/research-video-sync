@@ -115,7 +115,9 @@ Tras esas correcciones, la ejecución 41110376243 pasó 195/195 en Ubuntu y
 194/195 en Windows, sin omisiones. El único fallo restante era que `bash` resolvía
 al lanzador de WSL sin distribuciones instaladas. La workflow ahora comprueba Git
 Bash y antepone su directorio al PATH del runner antes de los tests; no instala
-WSL ni modifica el sistema científico. Los resúmenes de los jobs del PR #5
+WSL ni modifica el sistema científico. El test lanza la ruta absoluta devuelta
+por `shutil.which`: cambiar solo PATH no evita que CreateProcess seleccione el
+lanzador WSL de System32 al recibir el nombre sin ruta. Los resúmenes de los jobs del PR #5
 registran los conteos exactos de la validación posterior y los artefactos JUnit
 permiten revisarlos de forma independiente.
 
