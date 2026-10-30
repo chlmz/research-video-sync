@@ -101,3 +101,43 @@ def test_cli_disabled_exit_code(integrated, tmp_path, capsys):
     config.write_text(json.dumps(dict(execution=dict(workspace=integrated[0].workspace), pipeline={})))
     assert pp.main([str(config), 'run', '--participant', '000001']) == 20
     assert 'disabled' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('problem', ['missing_child', 'duplicate', 'typo', 'unknown_json', 'split_cameras'])
+def test_discovery_review_cannot_be_overridden(integrated, problem):
+    _, cfg, _, _, _ = integrated
+    root = cfg.inbox_dir / '000001' / 'delivery'
+    if problem == 'missing_child': (root / 'children1.avi').unlink()
+    elif problem == 'duplicate':
+        (root / 'backup').mkdir()
+        (root / 'backup/mother1.avi').write_bytes(b'duplicate fixture')
+    elif problem == 'typo': (root / 'mother1.avi').rename(root / 'mohter1.avi')
+    elif problem == 'unknown_json': (root / 'copy.json').write_text('{}')
+    else:
+        for role in ('mother', 'children'):
+            (root / role).mkdir()
+            (root / (role + '1.avi')).rename(root / role / (role + '1.avi'))
+        cfg.field_sessions = {'000001': ['delivery/mother', 'delivery/children']}
+    d = close_fixture(template(cfg, '000001'))
+    assert all(j['status'] == 'Blocked' for j in delivery_plan(cfg, '000001', d))
+
+
+def test_360_auxiliaries_not_worker_inputs(integrated):
+    _, cfg, _, _, _ = integrated
+    root = cfg.inbox_dir / '000001/delivery/CAMERA360'
+    root.mkdir()
+    for ext in ('insv', 'lrv'): (root / ('camera.' + ext)).write_bytes(b'auxiliary fixture')
+    declaration = close_fixture(template(cfg, '000001'))
+    jobs = delivery_plan(cfg, '000001', declaration)
+    assert len(jobs) == 1 and jobs[0]['status'] == 'Authorized'
+    assert set(jobs[0]['sources']) == {'mom', 'child'}
+    assert all(r['path'].endswith('.avi') for r in jobs[0]['sources'].values())
+
+
+def test_corrupted_retained_output_blocks_reencoding(integrated):
+    def disconnect(point):
+        if point == 'before_commit': raise OSError('simulated disconnect')
+    with pytest.raises(OSError): execute(integrated, checkpoint=disconnect)
+    (integrated[4][0] / 'outputs/mom.mp4').write_bytes(b'corrupt')
+    with pytest.raises(Conflict, match='retained'): execute(integrated)
+    assert len(integrated[4]) == 1

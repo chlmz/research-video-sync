@@ -99,3 +99,78 @@ existing monitor, task, account, credential store or service has been modified.
 The prior pipeline and its state stay available unchanged. There is no automatic
 migration from old SUCCESS/Published to delivery closure or QC. A new declaration
 and verified inventory are required; old states may remain read-only evidence.
+
+## Milestone 5: synthetic validation and review
+
+`examples/preproduction_demo.py --root NEW_LOCAL_PATH` generates two 40-second
+signals with a known two-second offset and builds three invented layouts:
+
+1. Six nested date/camera/DCIM levels, Mother/Children without game numbers:
+   retained as NeedsReview, never encoded.
+2. Repeated intermediate directories with mother/children on different branches,
+   also without numbers: retained as NeedsReview.
+3. mother1/children1 and mother2/children2, plus a second independent delivery with
+   repeated mother1/children1 names: three authorized synthetic jobs, three verified
+   publications. An interruption after commit recovers with one encoding attempt.
+
+The demo verifies source SHA-256 and mtimes unchanged, output offset within 0.15 s
+of the generated reference, idempotence and NotApproved QC. The same demonstration
+runs in pytest. Additional tests cover conservative declarations, ambiguities,
+auxiliary files, copy mutation, simulated SMB drops, space limits, corruption,
+concurrent publication, torn records, retry exhaustion, local locks, and a real
+worker/descendant process tree terminated at its deadline. The sleeping descendant
+stands in for blocked FFmpeg; the end-to-end uses real FFmpeg on generated media.
+
+CI retains Python 3.12, FFmpeg/FFprobe functional checks and the Ubuntu/Windows
+matrix. A push trigger is limited to this review branch, covering the stacked PR
+without adding a second pull_request trigger for its base. Existing PR #4/#5
+triggers remain unchanged. There is no scientific automation in this workflow.
+
+### Limits and pending approvals
+
+- Real Windows 11 validation must follow [the Work runbook](WORK_PREPRODUCTION_VALIDATION.md).
+  Windows hosted CI does not validate Dell antivirus, disk pressure, actual tool
+  installation, service-token capabilities or OS long-path configuration. Use a
+  short dedicated scratch root; very deep full UNC paths require separate testing.
+- Native SMB remains unvalidated. The [operation/permission matrix](STORAGE_PERMISSIONS.md)
+  proposes minimum operations but applies no ACLs. Torn commits require human
+  investigation; no automatic cleanup exists. Retained attempts consume space.
+- The marked local synthetic sandbox is a cooperative safety boundary, not proof
+  that arbitrary files are synthetic. Only the supplied generators/test fixtures
+  are authorized in this phase. There is no live-mode configuration escape hatch.
+- Human review is still required for session boundaries, missing game numbers,
+  definitive field JSON/closure semantics, accepted input integrity evidence,
+  scientific QC criteria and resource limits for full recordings. Inventory
+  fingerprints cover the whole participant: adding a delivery invalidates prior
+  declarations conservatively and requires review, rather than silently extending
+  an authorization.
+- Credential provisioning, immutable RAW ingestion, live NAS publication, remote
+  journal export and daily scheduling remain blocked. They require explicit
+  authorization and targeted validation; no production readiness is claimed.
+
+### Reproducible local results
+
+Cloud Linux, Python 3.12.14, FFmpeg/FFprobe 7.1.5:
+
+| Command / scope | Collected | Passed | Failed | Skipped |
+|---|---:|---:|---:|---:|
+| `python -m pytest -ra --junitxml=/tmp/gpis-preproduction-final.xml` | 245 | 244 | 0 | 1 |
+| Six new test modules listed in the Work runbook | 50 | 49 | 0 | 1 |
+| Storage + integration after final explicit conflict/gate guards | 33 | 33 | 0 | 0 |
+
+Full suite elapsed 194.32 s; specific suite 22.25 s. The one Linux skip is the
+Windows junction API test; the symlink and Bash tests ran. The specific suite is
+included in the full total (195 previous tests + 50 new tests). One external
+anyio/pytest deprecation warning remains; no test failure is concealed by it.
+The initial full run found one existing AST guard failure due to a new string path
+concatenation (243 passed, 1 failed, 1 skipped). It was corrected using pathlib;
+the guard was not weakened. The final explicit publication/status guards were
+also checked by the 33-test targeted run. Hosted CI must validate the published
+revision independently; these local counts are not Windows/SMB results.
+
+The standalone command `python examples/preproduction_demo.py --root
+/tmp/gpis-preproduction-demo-final` also succeeded: two blocked unnumbered jobs,
+three verified publications, recovery true, source bytes/mtimes unchanged, QC
+NotApproved, real_smb_validated false. All fixture media and JUnit reports remain
+outside version control. Reviewed changes contain text code/configuration/docs
+only, generated fixture identifiers and no real media, field records or credentials.

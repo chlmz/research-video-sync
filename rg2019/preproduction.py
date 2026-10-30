@@ -100,7 +100,11 @@ def verify_state(state):
     previous = None
     if type(state.get('attempts')) is not int or not 0 <= state['attempts'] <= 3 or state.get('qc_status') != 'NotApproved':
         raise Conflict('invalid execution state')
+    if not isinstance(state.get('events'), list):
+        raise Conflict('invalid journal events')
     for event in state['events']:
+        if not isinstance(event, dict):
+            raise Conflict('invalid journal event')
         value = {k: v for k, v in event.items() if k != 'hash'}
         if value.get('previous') != previous or digest(value) != event.get('hash'):
             raise Conflict('journal integrity mismatch')
@@ -119,10 +123,13 @@ def run(settings, cfg, participant, fingerprint, declaration, *, checkpoint=lamb
         if job is None or job['status'] != 'Authorized':
             raise Blocked('delivery authorization blocked or stale')
         state_path = contained(root, state_root / (fingerprint + '.json'))
-        state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else dict(
-            schema='rg2019.preproduction-state.v1', job_digest=digest(job), attempts=0,
-            technical_status='NotRun', qc_status='NotApproved', events=[])
-        if state.get('schema') != 'rg2019.preproduction-state.v1' or state.get('job_digest') != digest(job):
+        try:
+            state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else dict(
+                schema='rg2019.preproduction-state.v1', job_digest=digest(job), attempts=0,
+                technical_status='NotRun', qc_status='NotApproved', events=[])
+        except json.JSONDecodeError as exc:
+            raise Conflict('torn journal requires review') from exc
+        if not isinstance(state, dict) or state.get('schema') != 'rg2019.preproduction-state.v1' or state.get('job_digest') != digest(job):
             raise Conflict('journal identity/schema conflict')
         verify_state(state)
         def record(status, detail=''):
@@ -134,12 +141,12 @@ def run(settings, cfg, participant, fingerprint, declaration, *, checkpoint=lamb
             save_state(state_path, state)
         results = Results(root / '02_SYNCED')
         try:
+            if state['technical_status'] == 'Conflict':
+                raise Conflict('previous conflict requires human review')
             existing = results.inspect(job)
             if existing:
                 record('Published', 'verified recovery; scientific QC remains NotApproved')
                 return existing
-            if state['technical_status'] == 'Conflict':
-                raise Conflict('previous conflict requires human review')
             if state['attempts'] >= settings.max_attempts:
                 raise Blocked('retry budget exhausted; explicit review required')
             state['attempts'] += 1

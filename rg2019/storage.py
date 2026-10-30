@@ -101,7 +101,7 @@ class Inputs:
             raise OSError('insufficient scratch space')
         destination.mkdir(exist_ok=False)
         for role, record in job['sources'].items():
-            src = self.path(job['participant'] + '/' + relative(record['path']))
+            src = self.path((Path(relative(job['participant'])) / relative(record['path'])).as_posix())
             verified_copy(src, destination / (role + '.avi'), record, max_bytes=max_bytes)
         return destination
 
@@ -123,11 +123,14 @@ class Results:
         return contained(self.root, self.root / relative(rel))
 
     def slot(self, job):
+        if job.get('status') != 'Authorized':
+            raise ValueError('publication of a blocked job is forbidden')
         if not re.fullmatch(r'\d{6}', job['participant']) or type(job['game']) is not int or job['game'] < 1:
             raise ValueError('invalid job identity')
         if not re.fullmatch(r'[0-9a-f]{64}', job['fingerprint']) or not job['session']:
             raise ValueError('invalid session/fingerprint')
-        return self.path(f"{job['participant']}/{digest(job['session'])}/game-{job['game']}/{job['fingerprint']}")
+        return self.path((Path(job['participant']) / digest(job['session']) /
+                          f"game-{job['game']}" / job['fingerprint']).as_posix())
 
     def inspect(self, job):
         slot = self.slot(job)

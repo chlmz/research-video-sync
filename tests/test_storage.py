@@ -56,6 +56,8 @@ def test_disconnect_and_retry(transport, point):
 
 def test_conflict_never_overwrites(transport):
     _, results, _, job, out = transport
+    with pytest.raises(ValueError, match='blocked'):
+        results.publish(dict(job, status='Blocked'), out, {})
     final = results.publish(job, out, {})
     (out / 'mom.mp4').write_bytes(b'different output')
     with pytest.raises(storage.Conflict): results.publish(job, out, {})
@@ -103,3 +105,40 @@ def test_marker_cannot_traverse(transport):
     slot.mkdir(parents=True)
     (slot / 'COMMITTED.json').write_text(json.dumps(dict(attempt='../elsewhere', manifest_sha256='a')))
     with pytest.raises(storage.Conflict): results.inspect(job)
+
+
+def test_concurrent_publish_uses_one_verified_commit(transport):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    _, results, _, job, out = transport
+    slot = results.slot(job)
+    slot.mkdir(parents=True)
+    storage.write_new(slot / 'intent.json', job)
+    barrier = Barrier(2)
+    def checkpoint(point):
+        if point == 'before_commit': barrier.wait(timeout=10)
+    def publish():
+        try:
+            return results.publish(job, out, {}, checkpoint=checkpoint)
+        except storage.Conflict:
+            # A client may observe the winning marker before it is fully written.
+            return None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        values = list(pool.map(lambda _: publish(), range(2)))
+    final = results.inspect(job)
+    assert final and any(v == final for v in values)
+    assert all(v is None or v == final for v in values)
+
+
+def test_ordinary_unc_lexical_detection_without_network():
+    import os
+    from pathlib import PureWindowsPath
+    path = PureWindowsPath(r'\\fictional-host\synthetic-share\FOLLOWUP_TEST\00_INBOX')
+    assert storage.is_unc(path)
+    assert path.drive == r'\\fictional-host\synthetic-share'
+    assert (path / '000001' / 'delivery' / 'mother1.avi').name == 'mother1.avi'
+    if os.name == 'nt':
+        assert storage.validate_root(path) == Path(path)
+    else:
+        with pytest.raises(ValueError, match='requires Windows'):
+            storage.validate_root(path)
