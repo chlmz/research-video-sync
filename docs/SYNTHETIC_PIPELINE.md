@@ -96,9 +96,20 @@ de `test_synthetic_pipeline.py`; están incluidos en los 195, no se suman.
 La advertencia de anyio sobre una API futura de pytest es externa al cambio.
 
 CI: matriz Python 3.12 en Ubuntu 24.04 y Windows 2022, FFmpeg instalado en cada
-runner. Solo eventos PR o ejecución manual; no se duplica por push+PR y se cancela
-una ejecución anterior de la misma referencia. No se ha hecho push de esta rama;
-la matriz remota queda pendiente. Las versiones FFmpeg de CI no están fijadas a 9.
+runner. Se aceptan PR dirigidos a `main` y a `feature/gpis-recursive-discovery`.
+Solo eventos PR o ejecución manual; no se duplica por push+PR y se cancela una
+ejecución anterior de la misma referencia. Se comprueban Python 3.12, FFprobe y
+codificación H.264/AAC con FFmpeg antes de ejecutar todos los tests. JUnit queda
+como artefacto y sus conteos/fallos sintéticos aparecen en el resumen de Actions.
+Las versiones FFmpeg de CI no están fijadas a 9.
+
+La ejecución de diagnóstico 41109342590 confirmó en Ubuntu 195 tests sin fallos
+ni omisiones. Windows ejecutó 195 con 13 fallos y 0 omisiones. Se corrigieron
+lecturas de scripts UTF-8 que dependían del encoding CP1252 y el fixture de
+duplicados por mayúsculas: ahora crea los dos candidatos en subdirectorios
+distintos de la misma sesión, para que no se sobrescriban en NTFS. Las aserciones
+se conservan. El estado de validación posterior debe comprobarse en los checks
+del PR #5; un fallo del runner no equivale automáticamente a un fallo científico.
 
 ## Límites y decisiones científicas
 

@@ -26,7 +26,7 @@ RATE = 100  # low rate keeps the legacy pure-python loops fast; sign logic is ra
 
 
 def heredocs(script: str) -> list[str]:
-    text = (ROOT / script).read_text()
+    text = (ROOT / script).read_text(encoding="utf-8")
     return re.findall(r"<<'PYEOF'\n(.*?)\nPYEOF", text, flags=re.S)
 
 
@@ -113,6 +113,6 @@ def test_legacy_bash_set_e_post_increment_from_zero_aborts():
 
 
 def test_legacy_scripts_use_the_risky_counter_pattern():
-    text = (ROOT / "sync_research_project.sh").read_text()
+    text = (ROOT / "sync_research_project.sh").read_text(encoding="utf-8")
     assert "set -e" in text
     assert all(f"(({c}++))" in text for c in ("PROCESSED", "SKIPPED", "FAILED"))

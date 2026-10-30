@@ -123,7 +123,7 @@ def test_auto_sessions_do_not_use_camera_directories_as_sessions(tmp_path):
     assert all('REVIEW_SESSION_UNSPECIFIED' in f['review_codes'] for f in report['files'])
 
 
-@pytest.mark.parametrize('extra', ['copy/mother1.avi', 'MOTHER1.AVI', 'other_mom1.avi', 'mohter1.avi'])
+@pytest.mark.parametrize('extra', ['copy/mother1.avi', 'copy/MOTHER1.AVI', 'other_mom1.avi', 'mohter1.avi'])
 def test_duplicate_or_extra_candidate_blocks_pair(tmp_path, extra):
     cfg, _ = setup(tmp_path, ['delivery/mother1.avi', 'delivery/children1.avi', 'delivery/' + extra])
     r = discover_field(cfg, '001234')
