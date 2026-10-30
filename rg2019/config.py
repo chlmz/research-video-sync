@@ -52,6 +52,9 @@ class Config:
     participant_id_regex: str = r"^ID\d{4,8}$"
     mom_pattern: str = "_mom"
     child_pattern: str = "_child"
+    field_participant_id_regex: str = r"^\d{6}$"
+    # Reviewed, participant-relative session roots; no date/camera heuristics.
+    field_sessions: dict[str, list[str]] = field(default_factory=dict)
     video_extensions: list[str] = field(default_factory=lambda: [".mp4", ".avi", ".mov", ".mkv"])
     require_ready_marker: bool = False
     ready_marker_name: str = "READY.txt"
@@ -127,6 +130,7 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
                  **_build(Config, {k: v for k, v in data.items() if k != "followup_root"}, "config"))
     try:
         re.compile(cfg.participant_id_regex)
+        re.compile(cfg.field_participant_id_regex)
     except re.error as exc:
         raise ConfigError(f"participant_id_regex is not a valid regex: {exc}") from exc
     if cfg.sync.min_agreeing_windows > cfg.sync.fine_windows:
@@ -138,6 +142,19 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
         raise ConfigError("mom_pattern and child_pattern must differ")
     cfg.video_extensions = [e.lower() if e.startswith(".") else "." + e.lower()
                             for e in cfg.video_extensions]
+    if not isinstance(cfg.field_sessions, dict):
+        raise ConfigError("field_sessions must map participant IDs to session root lists")
+    for pid, roots in cfg.field_sessions.items():
+        if not isinstance(pid, str) or not re.fullmatch(cfg.field_participant_id_regex, pid):
+            raise ConfigError("invalid field_sessions participant ID")
+        if not isinstance(roots, list) or any(not isinstance(r, str) or not r or
+                r.startswith('/') or '\\' in r or ':' in r or
+                any(p in ('', '..') for p in r.split('/')) for r in roots):
+            raise ConfigError("session roots must be relative POSIX paths without traversal")
+        normalized = [PurePath(r) for r in roots]
+        if any(a == b or a in b.parents or b in a.parents
+               for i, a in enumerate(normalized) for b in normalized[i + 1:]):
+            raise ConfigError("session roots must not overlap")
     dirs = {cfg.inbox, cfg.raw, cfg.synced, cfg.logs_qc}
     if len(dirs) != 4:
         raise ConfigError("inbox/raw/synced/logs_qc must be four different folders")
