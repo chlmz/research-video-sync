@@ -4,6 +4,10 @@ Experimental 2026 recursive field inventory: see
 [FIELD_DISCOVERY.md](docs/FIELD_DISCOVERY.md). This read-only detector is separate
 from the processing pipeline below and does not authorize scientific processing.
 
+Local synthetic gated execution and crash-recovery demo:
+[SYNTHETIC_PIPELINE.md](docs/SYNTHETIC_PIPELINE.md). This experimental harness
+accepts fixture-only approval contracts and is not a production entry point.
+
 Audio-based synchronisation of the two camera recordings (mother / child) of the RG2019 follow-up
 study, designed for a **Synology-Drive-synchronised project folder** on a private Windows workstation.
 

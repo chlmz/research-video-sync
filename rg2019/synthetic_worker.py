@@ -14,6 +14,9 @@ def work(attempt):
     for info in infos.values():
         if not (info.has_video and info.has_audio and info.duration and 0 < info.duration <= 120):
             raise ValueError('invalid source or synthetic duration limit exceeded')
+        if not (info.width and info.height and info.width <= 1920 and info.height <= 1080
+                and info.fps and 0 < info.fps <= 60):
+            raise ValueError('synthetic resolution/frame-rate limit exceeded')
     arrays = {}
     try:
         for role, path in paths.items():

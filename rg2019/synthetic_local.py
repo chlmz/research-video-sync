@@ -19,7 +19,7 @@ class Sandbox:
         if str(root).startswith(('\\\\', '//')) or self.root == Path(self.root.anchor):
             raise ValueError('a dedicated local synthetic directory is required')
         contained(self.root, self.root)
-        if (self.root / '.synthetic-only').read_text() != 'RG2019 SYNTHETIC ONLY\n':
+        if contained(self.root, self.root / '.synthetic-only').read_text() != 'RG2019 SYNTHETIC ONLY\n':
             raise ValueError('not a synthetic sandbox')
 
     @classmethod
