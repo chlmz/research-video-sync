@@ -11,6 +11,7 @@ from dataclasses import asdict
 
 from .synthetic_plan import contained
 from .media import sha256_file
+from .fs_errors import check_path
 
 
 class Sandbox:
@@ -60,6 +61,11 @@ def process(box, cfg, job, timeout=120, max_bytes=256 * 1024**2):
     if shutil.disk_usage(box.path('scratch')).free < required:
         raise OSError('insufficient scratch space')
     attempt = box.path('scratch', uuid.uuid4().hex)
+    check_path(attempt / 'outputs', directory=True)
+    for name in ('mom.avi', 'child.avi', 'mom.pcm', 'child.pcm', 'config.json'):
+        check_path(attempt / name)
+    for name in ('mom.mp4', 'child.mp4', 'sync.json'):
+        check_path(attempt / 'outputs' / name)
     attempt.mkdir()
     for role, src in sources.items():
         dest = attempt / (role + '.avi')
@@ -69,6 +75,13 @@ def process(box, cfg, job, timeout=120, max_bytes=256 * 1024**2):
     config = asdict(cfg)
     config['followup_root'] = str(box.path('input'))
     (attempt / 'config.json').write_text(json.dumps(config), encoding='utf-8')
+    return run_worker(attempt, timeout)
+
+
+def run_worker(attempt, timeout):
+    """Shared bounded launcher; scientific worker/estimator remain unchanged."""
+    if not 0 < timeout <= 600:
+        raise ValueError('invalid worker deadline')
     command = [sys.executable, '-m', 'rg2019.synthetic_worker', str(attempt)]
     options = dict(cwd=str(Path(__file__).resolve().parents[1]), stdout=subprocess.PIPE,
                    stderr=subprocess.PIPE, text=True)
@@ -78,12 +91,22 @@ def process(box, cfg, job, timeout=120, max_bytes=256 * 1024**2):
     try:
         _, err = child.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        if os.name == 'nt':
-            subprocess.run(['taskkill', '/PID', str(child.pid), '/T', '/F'], capture_output=True, timeout=15)
-        else:
-            os.killpg(child.pid, signal.SIGKILL)
-        child.kill()
-        child.communicate()
+        try:
+            if os.name == 'nt':
+                result = subprocess.run(['taskkill', '/PID', str(child.pid), '/T', '/F'],
+                                        capture_output=True, timeout=15)
+                if result.returncode:
+                    raise RuntimeError('process tree termination unconfirmed; operator review required')
+            else:
+                os.killpg(child.pid, signal.SIGKILL)
+        finally:
+            child.kill()
+            try:
+                child.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.stdout.close()
+                child.stderr.close()
+                raise RuntimeError('worker pipes remain open; process tree termination unconfirmed')
         raise TimeoutError('scientific worker exceeded deadline')
     if child.returncode:
         raise RuntimeError('scientific worker failed: ' + err[-2000:])

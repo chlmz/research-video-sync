@@ -7,6 +7,7 @@ from contextlib import contextmanager
 
 from .media import sha256_file
 from .synthetic_plan import digest, contained
+from .fs_errors import check_path
 
 
 @contextmanager
@@ -56,6 +57,11 @@ def inspect(box, job):
 
 
 def publish(box, job, outputs, before_rename=lambda: None):
+    for folder in (destination(box, job), box.path('published', '.stage-' + 'f' * 32)):
+        check_path(folder, directory=True)
+        for name in ('mom.mp4', 'child.mp4', 'sync.json', 'manifest.json'):
+            check_path(folder / name)
+    check_path(box.path('state', 'publish.lock'))
     outputs = contained(box.path('scratch'), outputs)
     with exclusive(box.path('state', 'publish.lock')):
         if destination(box, job).exists():
