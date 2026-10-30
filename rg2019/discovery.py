@@ -89,7 +89,7 @@ ROLE = re.compile(r"(?<![a-z0-9])(mother|mom|children|child)(\d*)(?![a-z0-9])", 
 
 
 def discover_field(cfg: Config, participant: str) -> dict:
-    """Read-only field inventory. Session boundaries must be explicitly reviewed.
+    """Read-only field inventory. Infer only complete top-level partitions.
 
     No media decoding, hashing, readiness inference, or writes. Links/junctions
     are excluded even when their target is inside the participant tree.
@@ -104,6 +104,7 @@ def discover_field(cfg: Config, participant: str) -> dict:
     if not root.is_relative_to(authorized) or not root.is_dir():
         raise ValueError("participant outside authorized inbox")
     roots = cfg.field_sessions.get(participant, [])
+    inferred_roots = False
     result = {"schema": 2, "participant_id": participant, "files": [], "sessions": [],
               "issues": [], "delivery_status": "WaitingForDelivery",
               "integrity_status": "NotVerified", "qc_status": "NotApproved"}
@@ -175,10 +176,35 @@ def discover_field(cfg: Config, participant: str) -> dict:
             except (OSError, ValueError) as exc:
                 issue('SCAN_ERROR', rel, str(exc))
     result['files'].sort(key=lambda f: f['relative_path'])
-    # Case-insensitive duplicates are reviewable even across sessions (Windows).
-    names = Counter(f['name'].casefold() for f in result['files'] if f['kind'] == 'Video')
+    # A top-level partition is only structural evidence when every AVI belongs
+    # to one, every partition has both roles, and no scan/link error occurred.
+    # A pair split across camera directories therefore remains unassigned.
+    if not roots and not result['issues']:
+        videos = [f for f in result['files'] if f['kind'] == 'Video']
+        partitions = defaultdict(list)
+        for f in videos:
+            pieces = Path(f['relative_path']).parts
+            if len(pieces) > 1:
+                partitions[pieces[0]].append(f)
+        if (videos and sum(map(len, partitions.values())) == len(videos) and
+                all({f['role'] for f in group} == {'mom', 'child'} and
+                    all(not any(c in f['review_codes'] for c in (
+                        'REVIEW_ROLE_UNKNOWN', 'REVIEW_ROLE_CONTRADICTORY',
+                        'REVIEW_ROLE_TYPO', 'REVIEW_GAME_CONTRADICTORY')) for f in group)
+                    for group in partitions.values())):
+            roots = sorted(partitions)
+            inferred_roots = True
+            for f in result['files']:
+                matches = [r for r in roots if Path(f['relative_path']).is_relative_to(Path(r))]
+                if len(matches) == 1:
+                    f['session'] = matches[0]
+                    if 'REVIEW_SESSION_UNSPECIFIED' in f['review_codes']:
+                        f['review_codes'].remove('REVIEW_SESSION_UNSPECIFIED')
+    # Only duplicates inside a known session are conflicts. Unassigned files
+    # remain reviewable: their session relation is still unknown.
+    names = Counter((f['session'], f['name'].casefold()) for f in result['files'] if f['kind'] == 'Video')
     for f in result['files']:
-        if f['kind'] == 'Video' and names[f['name'].casefold()] > 1:
+        if f['kind'] == 'Video' and names[(f['session'], f['name'].casefold())] > 1:
             f['review_codes'].append('REVIEW_DUPLICATE_NAME')
         for code in f['review_codes']:
             issue(code, f['relative_path'], 'Review original name, role, session and game; no automatic correction')
@@ -198,7 +224,9 @@ def discover_field(cfg: Config, participant: str) -> dict:
             games.append(dict(game=number, status='CandidatePair' if valid else 'NeedsReview',
                               review_code=None if valid else ('REVIEW_GAME_UNSPECIFIED' if number is None else 'REVIEW_CANDIDATES'),
                               sources=[f['relative_path'] for f in candidates]))
-        result['sessions'].append(dict(session_id=session, games=games,
+        result['sessions'].append(dict(session_id=session,
+                                      session_origin='inferred_top_level' if inferred_roots else 'configured',
+                                      games=games,
                                       delivery_status='WaitingForDelivery',
                                       manifest_status='NotChecked', integrity_status='NotVerified', qc_status='NotApproved'))
     # Copy logs have no authoritative schema in the field evidence. Preserve them

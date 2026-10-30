@@ -73,6 +73,56 @@ def test_unknown_session_no_pair(tmp_path):
     assert all('REVIEW_SESSION_UNSPECIFIED' in f['review_codes'] for f in r['files'])
 
 
+def test_auto_sessions_only_for_complete_top_level_partitions(tmp_path):
+    cfg, _ = setup(tmp_path, ['delivery_a/CAM1/mother1.avi', 'delivery_a/CAM2/children1.avi',
+                             'delivery_b/CAM1/mother1.avi', 'delivery_b/CAM2/children1.avi'], sessions=())
+    report = discover_field(cfg, '001234')
+    assert [s['session_id'] for s in report['sessions']] == ['delivery_a', 'delivery_b']
+    assert all(s['session_origin'] == 'inferred_top_level' for s in report['sessions'])
+    assert all(s['games'][0]['status'] == 'CandidatePair' for s in report['sessions'])
+    assert not any(i['code'] == 'REVIEW_DUPLICATE_NAME' for i in report['issues'])
+    assert report['delivery_status'] == 'WaitingForDelivery'
+
+
+def test_auto_sessions_reject_incomplete_or_mixed_partitions(tmp_path):
+    cfg, _ = setup(tmp_path, ['delivery_a/mother1.avi', 'delivery_a/children1.avi',
+                             'delivery_b/mother1.avi'], sessions=())
+    report = discover_field(cfg, '001234')
+    assert not report['sessions']
+    assert all(f['session'] is None for f in report['files'])
+
+
+def test_auto_sessions_reject_loose_avi(tmp_path):
+    cfg, _ = setup(tmp_path, ['delivery_a/mother1.avi', 'delivery_a/children1.avi',
+                             'mother2.avi'], sessions=())
+    report = discover_field(cfg, '001234')
+    assert not report['sessions']
+
+
+def test_same_names_in_independent_explicit_sessions_are_legitimate(tmp_path):
+    cfg, _ = setup(tmp_path, ['a/mother1.avi', 'a/children1.avi',
+                             'b/mother1.avi', 'b/children1.avi'], sessions=('a', 'b'))
+    report = discover_field(cfg, '001234')
+    assert all(s['games'][0]['status'] == 'CandidatePair' for s in report['sessions'])
+    assert all(s['session_origin'] == 'configured' for s in report['sessions'])
+    assert not any(i['code'] == 'REVIEW_DUPLICATE_NAME' for i in report['issues'])
+
+
+def test_duplicate_name_inside_auto_session_is_conflict(tmp_path):
+    cfg, _ = setup(tmp_path, ['delivery/CAM1/mother1.avi', 'delivery/CAM2/children1.avi',
+                             'delivery/backup/mother1.avi'], sessions=())
+    report = discover_field(cfg, '001234')
+    assert report['sessions'][0]['games'][0]['status'] == 'NeedsReview'
+    assert sum(i['code'] == 'REVIEW_DUPLICATE_NAME' for i in report['issues']) == 2
+
+
+def test_auto_sessions_do_not_use_camera_directories_as_sessions(tmp_path):
+    cfg, _ = setup(tmp_path, ['CAM1/mother1.avi', 'CAM2/children1.avi'], sessions=())
+    report = discover_field(cfg, '001234')
+    assert not report['sessions']
+    assert all('REVIEW_SESSION_UNSPECIFIED' in f['review_codes'] for f in report['files'])
+
+
 @pytest.mark.parametrize('extra', ['copy/mother1.avi', 'MOTHER1.AVI', 'other_mom1.avi', 'mohter1.avi'])
 def test_duplicate_or_extra_candidate_blocks_pair(tmp_path, extra):
     cfg, _ = setup(tmp_path, ['delivery/mother1.avi', 'delivery/children1.avi', 'delivery/' + extra])

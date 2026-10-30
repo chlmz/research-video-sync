@@ -30,11 +30,20 @@ raíces relativas al participante, con `/` como separador incluso en Windows.
 Cada raíz delimita una sesión revisada y puede contener ramas separadas por cámara,
 fechas y niveles repetidos. No se permiten raíces superpuestas. `.` identifica
 todo el participante como una sola sesión **solo si esa delimitación está
-demostrada**. Sin raíces declaradas se inventarían límites: por eso se emite
-`REVIEW_SESSION_UNSPECIFIED` y no se construyen pares. Los archivos fuera de las
-raíces declaradas también quedan pendientes. No se infieren sesiones de fechas,
-directorios CAMERA ni JSON de copia. La clave `session_id` es la ruta de entrega/
-sesión completa, no un nombre de cámara ni solo la fecha.
+demostrada**. Si no hay raíces declaradas, el detector puede usar las carpetas
+inmediatas bajo el participante como particiones provisionales **solo** si todos
+los AVI están dentro de ellas, cada partición contiene AVI con ambos roles, no
+hay roles/juegos contradictorios ni errores de lectura, enlaces excluidos o
+archivos de transferencia. Si falta alguna condición, emite
+`REVIEW_SESSION_UNSPECIFIED` y no construye pares. Por ejemplo, `CAM1/mother1.avi`
+y `CAM2/children1.avi` no se convierten en sesiones ni en un par. El origen
+automático es evidencia de partición, no prueba de que sea una entrega completa:
+se mantiene `WaitingForDelivery`. Las raíces explícitas permiten resolver casos
+que requieren revisión científica. Los archivos fuera de ellas quedan pendientes.
+No se infieren sesiones de fechas, nombres CAMERA ni JSON de copia.
+La clave `session_id` es la ruta de la partición completa.
+`session_origin` distingue `inferred_top_level` de `configured`, para que la
+revisión humana pueda evaluar cómo se obtuvo cada límite.
 
 Código de salida 0 significa inventario sin incidencias de clasificación; 2 indica
 revisión. Ninguno autoriza procesamiento ni demuestra entrega completa.
@@ -52,8 +61,9 @@ revisión. Ninguno autoriza procesamiento ni demuestra entrega completa.
 - Roles o juegos contradictorios, posibles errores tipográficos y candidatos
   adicionales impiden escoger un par. La sugerencia no modifica el nombre.
 - Los nombres AVI repetidos, incluso con distinto uso de mayúsculas, quedan en
-  revisión aunque estén en distintas ramas o sesiones. Es intencionalmente
-  conservador; las rutas originales se mantienen distintas.
+  revisión cuando pertenecen a la misma sesión. Son legítimos entre sesiones
+  independientes. Si la sesión aún no está determinada, se mantiene la alerta
+  porque la relación entre los archivos no está resuelta.
 - Enlaces simbólicos, junctions/reparse points de Windows y archivos especiales
   se excluyen y se notifican. Errores de lectura se conservan como incidencias;
   no equivalen a un inventario completo. La comprobación no constituye una
@@ -110,14 +120,19 @@ No sustituir sus archivos por documentos schema 2.
 
 ## Validación sintética de esta implementación
 
-- `python3 -m pytest`: 162 tests pasaron en 232 s (139 existentes y los
-  primeros 23 tests nuevos).
-- Tras ampliar cobertura y excluir transferencias antes de clasificar AVI:
-  `python3 -m pytest tests/test_field_discovery.py -q`: 27 tests pasaron.
-  En conjunto se ejecutaron 166 casos distintos, sin fallos.
+- `python3 -m pytest`: 172 tests pasaron en 239,64 s (139 existentes y 33 del
+  detector). El último cambio de trazabilidad, `session_origin`, se comprobó
+  inmediatamente después con `python3 -m pytest tests/test_field_discovery.py -q`:
+  33 tests pasaron en 0,51 s. Estos 33 están contenidos en los 172; no se suman.
 - `git diff --check`: sin errores. Una advertencia externa de compatibilidad
   futura entre anyio y pytest; no hubo tests omitidos.
 - Solo fixtures sintéticos; no se accedió al NAS ni se procesaron vídeos reales.
+
+Para esta revisión se añadieron casos de particiones automáticas conservadoras,
+carpetas CAMERA separadas, entregas incompletas y duplicados dentro/entre sesiones.
+La suite completa se ejecuta en CI con Python 3.12 y FFmpeg en Ubuntu 24.04 mediante
+`.github/workflows/tests.yml`. Los resultados de esa ejecución deben consultarse
+en el PR; el resultado local actual se comunica en la entrega de esta revisión.
 
 ## Integración pendiente
 
