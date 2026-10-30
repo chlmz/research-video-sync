@@ -20,10 +20,11 @@ from pathlib import Path
 import pytest
 
 from helpers import recording, wall_signal, write_wav
+from platform_helpers import functional_bash
 
 ROOT = Path(__file__).resolve().parents[1]
 RATE = 100  # low rate keeps the legacy pure-python loops fast; sign logic is rate-independent
-BASH = shutil.which("bash")
+BASH = functional_bash(shutil.which("bash"))
 
 
 def heredocs(script: str) -> list[str]:
@@ -100,7 +101,7 @@ def test_legacy_sync_videos_script_trims_wrong_camera(tmp_path, label, ms, cs):
     assert trimmed != correct_trim(ms, cs)
 
 
-@pytest.mark.skipif(BASH is None, reason="bash not available")
+@pytest.mark.skipif(BASH is None, reason="optional legacy Bash unavailable or nonfunctional (Python pipeline unaffected)")
 def test_legacy_bash_set_e_post_increment_from_zero_aborts():
     """Bash `set -e` + `((COUNTER++))`: the arithmetic command's exit status is 1 when the
     expression evaluates to 0, and post-increment evaluates to the OLD value (0 on first use).

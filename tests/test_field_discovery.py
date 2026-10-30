@@ -148,8 +148,9 @@ def test_links_not_followed(tmp_path):
     outside = tmp_path / 'outside'
     outside.mkdir()
     (outside / 'children1.avi').write_bytes(b'outside')
-    (root / 'delivery/link').symlink_to(outside, target_is_directory=True)
-    (root / 'delivery/children1.avi').symlink_to(outside / 'children1.avi')
+    from platform_helpers import symlink_or_skip
+    symlink_or_skip(root / 'delivery/link', outside, directory=True)
+    symlink_or_skip(root / 'delivery/children1.avi', outside / 'children1.avi')
     r = discover_field(cfg, '001234')
     assert len(r['files']) == 1
     assert sum(i['code'] == 'LINK_EXCLUDED' for i in r['issues']) == 2
