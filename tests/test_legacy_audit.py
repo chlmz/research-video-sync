@@ -23,10 +23,11 @@ from helpers import recording, wall_signal, write_wav
 
 ROOT = Path(__file__).resolve().parents[1]
 RATE = 100  # low rate keeps the legacy pure-python loops fast; sign logic is rate-independent
+BASH = shutil.which("bash")
 
 
 def heredocs(script: str) -> list[str]:
-    text = (ROOT / script).read_text()
+    text = (ROOT / script).read_text(encoding="utf-8")
     return re.findall(r"<<'PYEOF'\n(.*?)\nPYEOF", text, flags=re.S)
 
 
@@ -99,20 +100,20 @@ def test_legacy_sync_videos_script_trims_wrong_camera(tmp_path, label, ms, cs):
     assert trimmed != correct_trim(ms, cs)
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.skipif(BASH is None, reason="bash not available")
 def test_legacy_bash_set_e_post_increment_from_zero_aborts():
     """Bash `set -e` + `((COUNTER++))`: the arithmetic command's exit status is 1 when the
     expression evaluates to 0, and post-increment evaluates to the OLD value (0 on first use).
     FINDING = the script would abort at the first skipped/failed/processed participant."""
-    r = subprocess.run(["bash", "-c", 'set -e; N=0; ((N++)); echo REACHED'],
+    r = subprocess.run([BASH, "-c", 'set -e; N=0; ((N++)); echo REACHED'],
                        capture_output=True, text=True)
     assert r.returncode == 1 and "REACHED" not in r.stdout
-    ok = subprocess.run(["bash", "-c", 'set -e; N=0; ((N++)) || true; ((N++)); echo REACHED $N'],
+    ok = subprocess.run([BASH, "-c", 'set -e; N=0; ((N++)) || true; ((N++)); echo REACHED $N'],
                         capture_output=True, text=True)
     assert "REACHED 2" in ok.stdout          # from the second increment on it is harmless
 
 
 def test_legacy_scripts_use_the_risky_counter_pattern():
-    text = (ROOT / "sync_research_project.sh").read_text()
+    text = (ROOT / "sync_research_project.sh").read_text(encoding="utf-8")
     assert "set -e" in text
     assert all(f"(({c}++))" in text for c in ("PROCESSED", "SKIPPED", "FAILED"))
