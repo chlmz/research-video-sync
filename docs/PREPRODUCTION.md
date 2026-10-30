@@ -40,8 +40,12 @@ change to the old StateStore or synthetic execution schema.
 
 `storage.Inputs` exposes read/verified-copy only. Every input is rehashed after an
 exclusive bounded copy, with size/mtime checks and scratch-space reservation.
-RAW ingestion always raises. `storage.Results` uses participant / session digest /
-game / input fingerprint directories; each contains immutable attempt directories.
+RAW ingestion always raises. `storage.Results` writes compact layout v2:
+`v2/<identity-base32-52>/a-<uuid-base32-26>/`. The identity encodes all 256 bits
+of the digest of `[participant, session, game, fingerprint]`; UUIDs retain all
+128 bits. Names are canonical lowercase base32, not truncated scientific hashes.
+The complete job is compared in the exclusive intent and manifest before reuse,
+including when two identities are forced to share a name. Each slot contains immutable attempts.
 `COMMITTED.json` references one manifest by SHA-256. Readers **must** use `inspect()`;
 the presence of an MP4 or directory is not a completed result. Manifests identify
 the original session text, sources, hashes, parameters, technical status and QC.
@@ -61,6 +65,30 @@ failure paths, not Synology guarantees. OS filesystem calls can stall on SMB bey
 application expectations; there is no claim of a hard network-I/O deadline.
 Trusted roots and an exclusive operational writer are required; containment checks
 do not defend against an adversary swapping reparse points between syscalls.
+
+### Windows budgets and existing results
+
+All platforms enforce the measured standard-Windows budget in UTF-16 units:
+247 for generated directories, 259 for files. Preflight covers publication,
+manifest/intent/commit, worker inputs/PCM/outputs and local journal replacement.
+An impossible root fails before copying/encoding with `PathBudgetError`; no
+registry setting, extended-path escape or elevation is required. Layout v2 adds
+99 characters from the results root through manifest versus 199 for v1/game-1.
+
+Compatibility is deliberately **explicit blocking**, not migration: an existing
+six-digit participant directory at the results root blocks that participant,
+including if a v2 result also exists. No old data is changed or silently reused.
+Use a fresh synthetic workspace for this revision; v1 evidence remains read-only.
+Unknown manifest layouts, mismatched full identities and torn records fail closed.
+The earlier `synthetic_*` API keeps its format and gains path-budget checks.
+
+The journal and CLI report `kind`, `errno`, `winerror`, and `retryable`. Known
+network reset/timeout codes are distinguished from paths, access denial, existing
+destinations, changed sources and copy integrity errors. Unknown OSError is not
+labelled transient. There is no automatic retry. A permanent storage error records
+`ReviewRequired`; another manual run cannot spend more attempts on it. A verified
+commit can still be recovered by readback. Operator review must not edit the
+hash-chained journal to bypass a blocked result.
 
 ## Milestone 4: manual integration and monitor interface
 

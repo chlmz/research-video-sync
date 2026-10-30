@@ -11,6 +11,7 @@ from dataclasses import asdict
 
 from .synthetic_plan import contained
 from .media import sha256_file
+from .fs_errors import check_path
 
 
 class Sandbox:
@@ -60,6 +61,11 @@ def process(box, cfg, job, timeout=120, max_bytes=256 * 1024**2):
     if shutil.disk_usage(box.path('scratch')).free < required:
         raise OSError('insufficient scratch space')
     attempt = box.path('scratch', uuid.uuid4().hex)
+    check_path(attempt / 'outputs', directory=True)
+    for name in ('mom.avi', 'child.avi', 'mom.pcm', 'child.pcm', 'config.json'):
+        check_path(attempt / name)
+    for name in ('mom.mp4', 'child.mp4', 'sync.json'):
+        check_path(attempt / 'outputs' / name)
     attempt.mkdir()
     for role, src in sources.items():
         dest = attempt / (role + '.avi')

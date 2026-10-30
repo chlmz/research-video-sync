@@ -43,10 +43,15 @@ def test_nonportable_paths_blocked(path):
 @pytest.mark.parametrize('point', ['copied:mom.mp4', 'before_commit', 'after_commit'])
 def test_disconnect_and_retry(transport, point):
     _, results, _, job, out = transport
+    class InjectedDisconnect(OSError):
+        pass
+    visited = []
     def disconnect(stage):
-        if stage == point: raise OSError('simulated SMB disconnect')
-    with pytest.raises(OSError):
+        visited.append(stage)
+        if stage == point: raise InjectedDisconnect('simulated SMB disconnect')
+    with pytest.raises(InjectedDisconnect, match='simulated SMB disconnect'):
         results.publish(job, out, {'fixture': True}, checkpoint=disconnect)
+    assert visited.count(point) == 1
     ready = results.inspect(job)
     assert bool(ready) == (point == 'after_commit')
     final = results.publish(job, out, {'fixture': True})

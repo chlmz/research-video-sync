@@ -6,6 +6,7 @@ import uuid
 from .synthetic_plan import plan, contained
 from .synthetic_local import process
 from .synthetic_publish import exclusive, inspect, publish
+from .fs_errors import check_path
 
 
 def save(box, fingerprint, state):
@@ -13,6 +14,8 @@ def save(box, fingerprint, state):
         raise ValueError('invalid fingerprint')
     path = box.path('state', fingerprint + '.json')
     tmp = box.path('state', uuid.uuid4().hex + '.tmp')
+    check_path(path)
+    check_path(tmp)
     with open(tmp, 'x', encoding='utf-8') as handle:
         json.dump(state, handle, sort_keys=True)
         handle.flush()

@@ -6,6 +6,7 @@ from rg2019 import preproduction as pp
 from rg2019.config import from_dict
 from rg2019.delivery import template, delivery_plan
 from rg2019.storage import Conflict, OUTPUTS
+from rg2019.fs_errors import SourceChanged
 from test_delivery_contract import close_fixture
 
 
@@ -51,7 +52,7 @@ def test_integration_recovery_and_idempotence(integrated):
 def test_disconnect_reuses_verified_outputs(integrated):
     def disconnect(point):
         if point == 'before_commit': raise OSError('simulated SMB drop')
-    with pytest.raises(OSError): execute(integrated, checkpoint=disconnect)
+    with pytest.raises(OSError, match='simulated SMB drop'): execute(integrated, checkpoint=disconnect)
     assert execute(integrated).exists()
     assert len(integrated[4]) == 1
 
@@ -59,7 +60,7 @@ def test_disconnect_reuses_verified_outputs(integrated):
 def test_retry_budget(integrated):
     def fail(point): raise OSError('simulated transient failure')
     for _ in range(3):
-        with pytest.raises(OSError): execute(integrated, checkpoint=fail)
+        with pytest.raises(OSError, match='simulated transient failure'): execute(integrated, checkpoint=fail)
     with pytest.raises(pp.Blocked, match='budget'): execute(integrated)
 
 
@@ -76,7 +77,7 @@ def test_changed_delivery_after_ingest_blocks(integrated):
     def change(point):
         if point == 'after_ingest':
             (integrated[1].inbox_dir / '000001/delivery/mother1.avi').write_bytes(b'changed')
-    with pytest.raises(pp.Blocked, match='changed'):
+    with pytest.raises(SourceChanged, match='changed'):
         execute(integrated, checkpoint=change)
     assert not integrated[4]
 
@@ -137,7 +138,7 @@ def test_360_auxiliaries_not_worker_inputs(integrated):
 def test_corrupted_retained_output_blocks_reencoding(integrated):
     def disconnect(point):
         if point == 'before_commit': raise OSError('simulated disconnect')
-    with pytest.raises(OSError): execute(integrated, checkpoint=disconnect)
+    with pytest.raises(OSError, match='simulated disconnect'): execute(integrated, checkpoint=disconnect)
     (integrated[4][0] / 'outputs/mom.mp4').write_bytes(b'corrupt')
     with pytest.raises(Conflict, match='retained'): execute(integrated)
     assert len(integrated[4]) == 1

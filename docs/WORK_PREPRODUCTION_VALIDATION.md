@@ -34,7 +34,7 @@ approved absolute FFmpeg/FFprobe executable paths in a local configuration.
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -ra --junitxml=C:\GPIS\temp\preproduction-full.xml
 $fullExit = $LASTEXITCODE
-.\.venv\Scripts\python.exe -m pytest -ra tests/test_windows_capabilities.py tests/test_delivery_contract.py tests/test_storage.py tests/test_preproduction.py tests/test_preproduction_e2e.py tests/test_worker_lifecycle.py --junitxml=C:\GPIS\temp\preproduction-specific.xml
+.\.venv\Scripts\python.exe -m pytest -ra tests/test_windows_capabilities.py tests/test_delivery_contract.py tests/test_storage.py tests/test_preproduction.py tests/test_preproduction_e2e.py tests/test_worker_lifecycle.py tests/test_windows_storage_regression.py --junitxml=C:\GPIS\temp\preproduction-specific.xml
 $specificExit = $LASTEXITCODE
 .\.venv\Scripts\python.exe examples/preproduction_demo.py --root C:\GPIS\temp\preproduction-fixtures-new
 $demoExit = $LASTEXITCODE
@@ -61,6 +61,51 @@ open-file sharing errors and antivirus interactions without disabling protection
 Do not manually mark scientific QC approved or copy fixture output to NAS.
 
 ## Before any later real-storage validation
+
+### Dell compatibility correction
+
+The a1b7fbd baseline failed locally with 233 pass / 10 fail / 2 skip, and the
+specific suite with 39 pass / 11 fail (46 / 4 under a short root). Directory
+creation failed at 248 UTF-16 units, ordinary file access at 260; FFmpeg/FFprobe
+9.0.2 handled the tested 320-character file paths. Do not enable LongPathsEnabled
+to conceal this regression. The compact v2 layout and preflight now handle these
+constraints; the 21 new regression cases include forced identity collisions,
+long roots, exact injected-disconnect checkpoints, immutable existing results,
+UTF-16 boundaries, permanent-error review and manual transient recovery.
+
+For a fresh Dell run, choose a NEW short root such as
+`C:\GPIS\temp\v6-YYYYMMDD-HHMMSS`. Clone the PR branch there, check out the exact
+review SHA, and create a dedicated venv. If `py` is unavailable, the already
+prepared `C:\GPIS\services\tools\python312\python.exe` can create that venv;
+do not install into the service venv or change PATH globally. Use the venv Python
+explicitly. Put `--basetemp`, JUnit files and demo root under this new directory,
+with different paths for full/specific runs. A second equivalent-long-root run
+can confirm the path regression; do not reuse/delete prior evidence.
+
+The full current suite has 266 cases (245 prior + 21 new), and the specific
+selection above has 71 (50 prior + 21 new). On this non-admin Dell, only the
+symlink privilege fixture and legacy Bash test may skip in the full suite;
+junction and all 71 specific tests must run. CI capability differences may yield
+266 pass on Windows and 265 pass / one junction skip on Linux. Record actual
+counts and reasons, never infer these from expected values.
+
+### Reuse the approved SMB mechanism in Work
+
+The 29 October prelogin synthetic task under `GPIS-SERVER\gpis_runner` passed
+with exit 0, confirmed by local/NAS run ID and hashes. Its existing wrapper uses
+DPAPI LocalMachine and nonpersistent New-SmbMapping for
+`DS423GPIS\gpis_server`. A later interactive Credential Manager / LogonUserW
+type-9 experiment received 1326; it used a different credential source and logon
+context. That does **not** establish a regression of the approved service access
+or justify a password change. Its ultimate authentication cause remains unproven.
+
+Current non-admin task inspection/re-execution was denied. Work must use the
+already approved wrapper and technical identity from an authorized context,
+preserving prior task state, without creating replacement tasks, extracting
+secrets, or changing accounts/ACLs. Record identity, method, phase, errno and
+winerror separately. Storage primitive tests belong only in a fresh namespace
+under the authorized `GPIS_SERVER/infra-tests`; the scientific entrypoint still
+rejects UNC. No real SMB/service-account validation is part of these code tests.
 
 A separate human authorization is required. Use a disposable, non-scientific SMB
 test location approved by its administrator, never official INBOX/RAW or existing

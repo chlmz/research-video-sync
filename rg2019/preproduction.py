@@ -17,8 +17,23 @@ from .storage import Inputs, Results, Conflict, is_unc, validate_root, OUTPUTS, 
 from .synthetic_plan import contained, digest
 from .synthetic_publish import exclusive
 from .synthetic_local import run_worker
+from .fs_errors import check_path, error_info, SourceChanged
 
 MARKER = 'RG2019 SYNTHETIC PREPRODUCTION ONLY\n'
+
+
+def preflight_workspace(root):
+    """Generated paths including journal replacement and worker intermediates."""
+    for name in ('00_INBOX', '02_SYNCED', 'scratch', 'state'):
+        check_path(root / name, directory=True)
+    for name in ('execution.lock', 'f' * 64 + '.json', 'f' * 32 + '.tmp'):
+        check_path(root / 'state' / name)
+    attempt = root / 'scratch' / ('f' * 32)
+    check_path(attempt / 'outputs', directory=True)
+    for name in ('mom.avi', 'child.avi', 'mom.pcm', 'child.pcm', 'config.json'):
+        check_path(attempt / name)
+    for name in OUTPUTS:
+        check_path(attempt / 'outputs' / name)
 
 
 class Blocked(ValueError):
@@ -47,6 +62,7 @@ class Settings:
                 0 < self.timeout_seconds <= 600 and type(self.max_attempts) is int and 1 <= self.max_attempts <= 3):
             raise Blocked('invalid operational limits')
         root = validate_root(self.workspace)
+        preflight_workspace(root)
         if contained(root, root / '.gpis-synthetic-only').read_text(encoding='utf-8') != MARKER:
             raise Blocked('unmarked synthetic workspace')
         for name in ('00_INBOX', '02_SYNCED', 'scratch', 'state'):
@@ -60,6 +76,7 @@ def initialize(root):
     if is_unc(root):
         raise Blocked('UNC initialization forbidden')
     root = validate_root(root)
+    preflight_workspace(root)
     contained(root, root)
     root.mkdir(parents=True, exist_ok=False)
     (root / '.gpis-synthetic-only').write_text(MARKER, encoding='utf-8')
@@ -91,6 +108,7 @@ def provenance(cfg, settings):
 
 
 def save_state(path, state):
+    check_path(path)
     temp = contained(path.parent, path.parent / (uuid.uuid4().hex + '.tmp'))
     write_new(temp, state)
     os.replace(temp, path)  # Local journal only; never used as an SMB guarantee.
@@ -122,6 +140,8 @@ def run(settings, cfg, participant, fingerprint, declaration, *, checkpoint=lamb
         job = next((j for j in jobs if j['fingerprint'] == fingerprint), None)
         if job is None or job['status'] != 'Authorized':
             raise Blocked('delivery authorization blocked or stale')
+        results = Results(root / '02_SYNCED')
+        results.preflight(job)  # Before attempts, source copies or scientific work.
         state_path = contained(root, state_root / (fingerprint + '.json'))
         try:
             state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else dict(
@@ -139,7 +159,6 @@ def run(settings, cfg, participant, fingerprint, declaration, *, checkpoint=lamb
             event['hash'] = digest(event)
             state['events'].append(event)
             save_state(state_path, state)
-        results = Results(root / '02_SYNCED')
         try:
             if state['technical_status'] == 'Conflict':
                 raise Conflict('previous conflict requires human review')
@@ -147,6 +166,8 @@ def run(settings, cfg, participant, fingerprint, declaration, *, checkpoint=lamb
             if existing:
                 record('Published', 'verified recovery; scientific QC remains NotApproved')
                 return existing
+            if state['technical_status'] == 'ReviewRequired':
+                raise Blocked('previous permanent error requires explicit review')
             if state['attempts'] >= settings.max_attempts:
                 raise Blocked('retry budget exhausted; explicit review required')
             state['attempts'] += 1
@@ -169,7 +190,7 @@ def run(settings, cfg, participant, fingerprint, declaration, *, checkpoint=lamb
                 # Revalidate complete delivery after copy, before processing.
                 current = delivery_plan(cfg, participant, declaration)
                 if job not in current:
-                    raise Blocked('delivery changed during ingestion')
+                    raise SourceChanged('delivery changed during ingestion')
                 worker_cfg = asdict(cfg)
                 worker_cfg['followup_root'] = str(root)
                 write_new(attempt / 'config.json', worker_cfg)
@@ -181,7 +202,17 @@ def run(settings, cfg, participant, fingerprint, declaration, *, checkpoint=lamb
             record('Published')
             return final
         except Exception as exc:
-            record('Conflict' if isinstance(exc, Conflict) else 'Failed', type(exc).__name__ + ': ' + str(exc))
+            if isinstance(exc, Blocked) and state['technical_status'] == 'ReviewRequired':
+                raise  # Preserve the original permanent cause and attempt count.
+            info = error_info(exc)
+            if isinstance(exc, Conflict):
+                info.update(kind='conflict', retryable=False)
+            state['last_error'] = info
+            permanent = info['kind'] in ('path_too_long', 'access_denied', 'already_exists',
+                                         'source_changed', 'integrity_error')
+            status = 'Conflict' if isinstance(exc, Conflict) else (
+                'ReviewRequired' if permanent or state['technical_status'] == 'ReviewRequired' else 'Failed')
+            record(status, type(exc).__name__ + ': ' + str(exc))
             raise
 
 
@@ -218,11 +249,14 @@ def main(argv=None):
         return 0
     except Conflict as exc:
         code, message = 30, str(exc)
+        info = dict(error_info(exc), kind='conflict')
     except (Blocked, ValueError, TypeError) as exc:
         code, message = 20, str(exc)
+        info = error_info(exc)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         code, message = 40, str(exc)
-    print(json.dumps(dict(exit_code=code, error=message, qc_status='NotApproved')), file=sys.stderr)
+        info = error_info(exc)
+    print(json.dumps(dict(exit_code=code, error=message, qc_status='NotApproved', **info)), file=sys.stderr)
     return code
 
 
