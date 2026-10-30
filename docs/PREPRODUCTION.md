@@ -61,3 +61,41 @@ failure paths, not Synology guarantees. OS filesystem calls can stall on SMB bey
 application expectations; there is no claim of a hard network-I/O deadline.
 Trusted roots and an exclusive operational writer are required; containment checks
 do not defend against an adversary swapping reparse points between syscalls.
+
+## Milestone 4: manual integration and monitor interface
+
+`python -m rg2019.preproduction CONFIG {template,plan,run} --participant 000001`
+is a manual entrypoint. `run` also requires `--declaration FILE --fingerprint HASH`.
+There is no scheduler, batch scan, automatic retry or live mode. Configuration
+defaults to disabled; only new, explicitly marked local synthetic workspaces are
+accepted. The UNC transport is prepared separately but deliberately unreachable
+from live execution until scientific/storage authorization is resolved.
+
+Input copies go into a unique local attempt. The complete delivery is checked
+again before launching the existing bounded worker, which reuses `media.py` and
+`syncest.py` unchanged. Limits remain synthetic: two AVI inputs, 1 GiB maximum
+configurable input (256 MiB default), 120 s media duration, 1080p/60 fps, 600 s
+maximum worker deadline (120 s default). Resource requirements for full-length
+field recordings remain unapproved. Windows taskkill tree failure or pipes that
+remain open produce an explicit operational failure, never technical success.
+
+Local state uses a separate `rg2019.preproduction-state.v1` journal, atomic local
+replacement and chained event hashes (corruption detection, not a digital signature).
+One local OS lock excludes simultaneous executions sharing the workspace. Up to
+three explicit attempts are allowed; conflicts require review. Verified retained
+outputs can finish publication without encoding again. Completion is inspected
+before retry budgeting so a lost acknowledgement can recover after the last try.
+The manifest records commit, dirty flag, Python/OS/tool versions, parameters,
+limits, original relative paths and hashes; `sync.json` retains estimator evidence.
+TechnicalSuccess/Published never changes scientific QC from NotApproved.
+
+Future monitor contract: stdout JSON for successful template/plan/run, stderr JSON
+for errors; exit 0 = command completed (a plan may still contain Blocked jobs),
+20 = policy/configuration/delivery blocked, 30 = immutable data conflict requiring
+review, 40 = operational/media failure. A process crash may instead use the OS exit
+code. Work must read job status, not infer scientific approval from exit 0. No
+existing monitor, task, account, credential store or service has been modified.
+
+The prior pipeline and its state stay available unchanged. There is no automatic
+migration from old SUCCESS/Published to delivery closure or QC. A new declaration
+and verified inventory are required; old states may remain read-only evidence.

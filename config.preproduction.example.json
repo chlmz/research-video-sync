@@ -1,0 +1,16 @@
+{
+  "execution": {
+    "workspace": "C:/GPIS/temp/synthetic-preproduction",
+    "enabled": false,
+    "mode": "synthetic",
+    "max_input_bytes": 268435456,
+    "reserve_bytes": 134217728,
+    "timeout_seconds": 120,
+    "max_attempts": 3
+  },
+  "pipeline": {
+    "field_sessions": {"000001": ["delivery"]},
+    "ffmpeg": "ffmpeg",
+    "ffprobe": "ffprobe"
+  }
+}
