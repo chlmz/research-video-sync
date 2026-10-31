@@ -97,6 +97,14 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[DECISION]** No reducir artificialmente el presupuesto de memoria ni usar paginación como prueba de suficiencia; observar primero qué aplicaciones prescindibles consumen memoria sin detener servicios. Si no hay margen, evaluar alternativa de FFT por bloques/streaming de memoria acotada para que el software sea reutilizable en grabaciones largas.
 - **[PRIVATE]** La capacidad disponible observada, conteo de muestras, tiempos de grabación y rutas de informes reales deben conservarse en registro QC privado; **no copiarlos al repositorio público**.
 
+### 2026-10-31 — FFT global ejecutada y rechazo por similitud acústica insuficiente
+
+- **[FIELD REPORT]** Después de corregir el margen de RAM, se ejecutó el estimador opcional global FFT en una copia local de un par real de investigación, con el SHA exacto del PR #9 y un presupuesto de memoria revisado. La FFT terminó correctamente, sin modificar los originales.
+- **[FIELD REPORT]** La primera configuración no generó candidatos elegibles. Se hizo **un único ensayo adicional** con ventanas de validación más cortas, conservando los demás umbrales de correlación y consenso. La nueva duración mínima de solapamiento permitió lags elegibles, pero el mayor pico de correlación **no superó el umbral mínimo**, y por tanto **no se aceptó ningún candidato**. El validador independiente no recibió ventanas para evaluar.
+- **[SCIENTIFIC STATUS]** **Sin desfase validado; sin vídeos sincronizados; QC=NotApproved.** No clasificar el pico global rechazado como offset. El motivo observado es el rechazo por criterio de similitud, no insuficiencia de RAM ni imposibilidad geométrica de solapamiento. No se demostró que los vídeos correspondan a episodios diferentes.
+- **[DECISION]** Detener barridos de parámetros y cambios de algoritmo. El siguiente paso científico es identificar al menos un evento audiovisual inequívocamente compartido entre ambas fuentes y anotar sus tiempos locales, idealmente dos eventos separados para evaluar deriva temporal. La coincidencia manual sería **un ancla diagnóstica**, no aceptación científica automática.
+- **[PRIVATE]** Guardar fuera del repositorio público los tiempos individuales, picos NCC, posiciones de lag, duraciones, hashes de media, identificadores y archivos de evidencia. Aquí se documenta únicamente el razonamiento metodológico transferible a otro proyecto.
+
 ## 3. Matemática esencial de sincronización
 
 ### 3.1 Convención del desfase (NO cambiar sin tests)
@@ -260,7 +268,7 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ## 11. Pendientes y próximos hitos
 
 - **[CI / OPEN]** PR #9 en Draft, SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`: 309 PASS Windows; 308 PASS + 1 SKIP Ubuntu. La revisión inicial del código no detectó regresión matemática reproducible; falta medir recursos reales y validar audio local sin activar el pipeline. Modo global sigue desactivado por defecto.
-- **[OPEN]** Repetir únicamente la **admisión de recursos**, no toda la auditoría: comprobar procesos de usuario que consuman RAM; cerrar solo aplicaciones voluntariamente prescindibles, sin tocar servicios. No lanzar la FFT hasta que se observe un margen operativo revisado. Si no hay margen suficiente, diseñar una búsqueda global FFT de memoria acotada para grabaciones largas y demostrarla con tests sintéticos antes de la prueba de audio real.
+- **[OPEN]** **FFT global ya ejecutada con RAM suficiente; no se obtuvo candidato aceptado.** No ejecutar más barridos de ventanas, umbrales ni memoria. Identificar evento audiovisual común y corroborar el desfase entre ambas fuentes con marcas temporales independientes; únicamente después revisar limitaciones del estimador y, si corresponde, construir vídeos diagnósticos no aprobados.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
 - **[OPEN]** Generar dos MP4 y side-by-side locales y registrar QC manual de inicio, medio y final. **No declarar hecho aún.**
 - **[OPEN]** Establecer tolerancia de desfase/deriva, tasas de fallos y criterios de aprobación.
@@ -287,6 +295,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v0.5 · 2026-10-31** — Dos ensayos FFT globales reales realizados: el segundo, con ventanas más cortas, superó la puerta de solapamiento pero no la de similitud; sin offset validado, sin MP4 y QC NotApproved. Siguiente paso: evento audiovisual común, sin ajustar umbrales ni publicar métricas reales.
 
 - **v0.4 · 2026-10-31** — Verificación autorizada de RAM/PCM del FFT global real: BLOCKED antes de cualquier cálculo; sin offset, sin MP4 nuevos. Se documenta decisión de priorizar memoria segura o diseño acotado, conservando cifras operativas reales en privado.
 
