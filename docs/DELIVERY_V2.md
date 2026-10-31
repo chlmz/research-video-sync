@@ -15,8 +15,9 @@ Each file has `path` (portable relative POSIX path), `name` (current basename),
 `original_name` (null or explicitly supplied previous relative name/path), `size`
 (nonnegative integer), `sha256` (64 lowercase hexadecimal characters), `material`
 (AVI/Auxiliary360/HistoricalJSON/Other), `role` (mom/child/null), `game` (integer/null).
-Exclusions have all these fields plus a nonempty `reason`; their bytes are still
-hashed/verified as evidence, but they are excluded from the declared included list.
+Exclusions have all these fields plus a nonempty `reason`; their source bytes are
+hashed as evidence, but they need not be transported. If present at the receiver,
+their hashes must match; their absence does not mean an incomplete delivery.
 The candidate planner remains conservative and will not silently ignore a
 conflicting AVI merely because a sender excluded it.
 

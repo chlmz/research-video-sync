@@ -70,6 +70,9 @@ def test_exclusions_and_rename_evidence(selected):
     assert verify(selected, doc)['status'] == 'ReceptionVerified'
     record = next(r for r in doc['files'] if r['role'] == 'mom')
     assert record['game'] is None and record['original_name'] == 'before/SNAP9.avi'
+    # An explicitly excluded file need not be transported to the receiver.
+    (selected / '360/x.lrv').unlink()
+    assert verify(selected, doc)['status'] == 'ReceptionVerified'
 
 
 def test_manifest_self_inclusion_and_overwrite_blocked(selected, tmp_path):

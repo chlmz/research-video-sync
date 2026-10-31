@@ -148,13 +148,14 @@ def verify(root, doc, *, participant, session_id):
         if doc['participant'] != participant or doc['session_id'] != session_id:
             raise ValueError('receiver session/participant identity conflict')
         expected = {r['path']: r for r in doc['files'] + doc['exclusions']}
+        required = {r['path'] for r in doc['files']}
         scope = Path(root).absolute()
         contained(scope, scope)
         if not scope.exists():
-            result.update(status='WaitingForDelivery', missing=sorted(expected), additional=[], mismatches=[])
+            result.update(status='WaitingForDelivery', missing=sorted(required), additional=[], mismatches=[])
             return result
         observed = inventory(root)
-        missing, additional = sorted(set(expected) - set(observed)), sorted(set(observed) - set(expected))
+        missing, additional = sorted(required - set(observed)), sorted(set(observed) - set(expected))
         bad = sorted(p for p in set(expected) & set(observed) if any(
             expected[p][k] != observed[p][k] for k in ('size', 'sha256')))
         result.update(missing=missing, additional=additional, mismatches=bad, delivery_id=doc['delivery_id'])
