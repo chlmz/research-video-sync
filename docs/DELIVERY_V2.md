@@ -79,6 +79,8 @@ numbers. Default discovery keeps historical unspecified-game behavior.
 classification to its fingerprint. `delivery_v2.reception_plan` verifies first,
 then reuses that planner for the mapped session. Every returned job stays Blocked:
 reception, session review, scientific authorization and QC remain separate.
+The receipt job fingerprint additionally binds the independent session UUID and
+delivery ID; reusing a directory cannot reuse another delivery's authorization.
 
 Historical copy JSON stays evidence. `historical_receipts.reconcile(records,
 observed_sizes)` reports possible size matches without claiming equivalence.

@@ -155,3 +155,14 @@ def test_numbered_games_match_only_numbers(selected):
     result = v2.reception_plan(cfg,'000001','session',generate(selected),session_id=SID,session_reviewed=True)
     assert [j['game'] for j in result['jobs']] == [1,2]
     assert all(j['game_origin'] == 'explicit' for j in result['jobs'])
+
+
+def test_receiver_identity_binds_uuid_even_when_directory_reused(selected):
+    cfg = from_dict(dict(followup_root=str(selected.parents[2]), field_sessions={'000001':['session']}))
+    doc = generate(selected)
+    first = v2.reception_plan(cfg,'000001','session',doc,session_id=SID,session_reviewed=True)
+    other = copy.deepcopy(doc)
+    other['session_id'] = str(uuid.UUID(int=2))
+    other['delivery_id'] = v2.identity(other)
+    second = v2.reception_plan(cfg,'000001','session',other,session_id=other['session_id'],session_reviewed=True)
+    assert first['jobs'][0]['fingerprint'] != second['jobs'][0]['fingerprint']

@@ -177,6 +177,9 @@ def reception_plan(cfg, participant, session_root, doc, *, session_id, session_r
     jobs = plan(cfg, participant, reviewed_sessions=reviewed)
     jobs = [j for j in jobs if j['session'] == session_root]
     for job in jobs:
+        job['discovery_fingerprint'] = job['fingerprint']
+        job['fingerprint'] = digest(dict(discovery=job['fingerprint'], session_id=session_id,
+                                        delivery_id=doc['delivery_id']))
         job.update(session_id=session_id, receipt=receipt, status='Blocked', qc_status='NotApproved')
         job['reasons'] = sorted(set(job['reasons'] + ['ScientificProcessingAuthorizationRequired']))
     return dict(receipt=receipt, jobs=jobs)
