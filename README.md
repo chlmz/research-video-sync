@@ -1,244 +1,182 @@
-# research-video-sync
+# RG2019 Research Video Synchronization Pipeline
 
-Experimental 2026 recursive field inventory: see
-[FIELD_DISCOVERY.md](docs/FIELD_DISCOVERY.md). This read-only detector is separate
-from the processing pipeline below and does not authorize scientific processing.
+**A reproducible research-software project for synchronizing dual-camera mother–child interaction recordings**, developed in the context of the **2019 Rio Grande Birth Cohort (Coorte de Nascimentos de Rio Grande 2019)**.
 
-Local synthetic gated execution and crash-recovery demo:
-[SYNTHETIC_PIPELINE.md](docs/SYNTHETIC_PIPELINE.md). This experimental harness
-accepts fixture-only approval contracts and is not a production entry point.
+**Status: research preview / documentation in progress — NOT approved for unattended real-data processing.** The source repository is public, but actual cohort recordings, internal network details and operational credentials are private. A verified field-scientific synchronization and a released package are still pending.
 
-Audio-based synchronisation of the two camera recordings (mother / child) of the RG2019 follow-up
-study, designed for a **Synology-Drive-synchronised project folder** on a private Windows workstation.
+> **Important for humans and AI agents:** the historic `pipeline_rg2019.py` entrypoint has older **live INBOX → RAW move semantics** and must **not** be run on the current field NAS layout. The newer safeguarded executor is deliberately **synthetic-only**. Follow the [safe quickstart](docs/product/GETTING_STARTED.md), not the old deployment instructions.
 
-> **Production = `pipeline_rg2019.py` (v2, Python).**
-> `sync_research_project.sh` and `sync_videos.sh` are **LEGACY**, kept only for history. Do **not** use them
-> on the NAS workflow: they write markers inside participant folders, trim the wrong camera
-> (`sync_videos.sh`), and abort after the first participant (`set -e`). See [docs/LEGACY_AUDIT.md](docs/LEGACY_AUDIT.md).
-> The two HTML guides describe that legacy workflow.
+## What this project aims to solve
 
-## 1. Architecture
+Two research cameras may capture the same event while starting at different times. We need to find the correct mother/child pairing for **each participant, session and game**, estimate the temporal offset using shared audio, trim the camera that started first, export traceable derived videos and independently check scientific alignment.
 
-```
-FOLLOWUP_2026/                      <- followup_root (whole tree synced to the Synology NAS)
-├── 00_INBOX/IDxxxx/                <- written by the shared university PC (may still be syncing!)
-├── 01_RAW/IDxxxx/                  <- preserved originals: ONLY original material, never modified
-├── 02_SYNCED/IDxxxx/               <- IDxxxx_mom_synced.mp4, IDxxxx_child_synced.mp4 (+ optional side_by_side)
-├── 03_WORKSPACE/  04_FACEREADER_OUTPUT/  05_ANALYTIC_DATA/     (not touched by this pipeline)
-└── 99_LOGS_QC/                     <- ALL pipeline state, logs and QC files
-    ├── state/IDxxxx.json           <- per-participant state (source of truth)
-    ├── pipeline_status.csv         <- human-readable master table (regenerated from state)
-    ├── logs/pipeline_YYYY-MM-DD.log
-    └── pipeline.lock               <- exists only while a run is active
-```
+The intended outputs after full approval are:
 
-Daily flow per participant:
+- Synchronized mother-view MP4.
+- Synchronized child-view MP4.
+- Side-by-side MP4 to support visual QC and behavioral coding.
+- Machine-readable provenance, audio-offset diagnostics, file-integrity evidence, processing state and QC disposition.
 
-```
-00_INBOX/IDxxxx --ready? stable? one mom + one child? ffprobe OK? SHA-256--> MOVE --> 01_RAW/IDxxxx
-                                                                                        │ (read-only from here)
-                                     02_SYNCED/IDxxxx  <-- offset estimate + trim/encode ┘
-```
+The **safe synthetic worker currently produces the first two MP4s and `sync.json`**; the side-by-side encoder exists in the older media API but has **not yet been integrated into the guarded end-to-end executor**. The definitive output path convention must incorporate **participant + session + game** to avoid collisions; this is pending production design approval.
 
-### How RAW protection works
+## Who should read what?
 
-* Material is **moved** (not copied) from INBOX to RAW, file by file; an existing file/folder in RAW is **never overwritten**.
-  If `01_RAW/IDxxxx` already exists while INBOX also holds material for it -> `RAW_CONFLICT`, nothing is touched.
-* After promotion the code only *opens RAW files for reading* (`ffprobe`, `ffmpeg -i`). It never writes, renames or
-  deletes anything in `01_RAW`, and never puts markers/state there (that is why `.sync_done` is gone).
-* Each RAW source's size, modified time (`mtime_ns`) and SHA-256 are recorded at ingest. Every run does a cheap check
-  (existence + size + mtime, no file reads):
-  * size differs -> `RAW_CONFLICT` immediately;
-  * size identical but mtime differs -> that one file's SHA-256 is recomputed **once** and compared with the stored hash:
-    different -> `RAW_CONFLICT`; identical -> content is unchanged, the new mtime is recorded **in the state file only**
-    (RAW itself is never modified) so it is not hashed again;
-  * unchanged files are never re-hashed. *Limit:* an edit that preserves both the size **and** the modified time is not
-    detectable by the daily check (it would need hashing every run); the stored SHA-256 is there for manual audit.
-* SHA-256 is computed **once** (in INBOX, before the move) and stored in the state file; it is not recomputed on daily runs.
-* This is protection *by program design*. For protection *by the operating system*, also make `01_RAW` read-only
-  for everyone else (NAS/Synology permissions; the shared PC should only ever have read access to RAW).
-
-## 2. Prerequisites and installation
-
-* Windows 10/11 (developed/tested on Linux; all paths use `pathlib`), Python >= 3.10.
-* `ffmpeg` and `ffprobe` (with libx264 and aac) installed; checked at start-up.
-* `pip install -r requirements.txt` (numpy, scipy). Tests: `pip install -r requirements-dev.txt`.
-
-```bat
-cd C:\RG2019\research-video-sync
-python -m pip install -r requirements.txt
-copy config.example.json config.json
-notepad config.json
-```
-
-`config.json` is git-ignored (machine-specific). Only `config.example.json` (fake paths) is committed.
-
-## 3. Configuration (`config.json`)
-
-| Key | Default | Meaning |
+| Reader | Start here | What you will learn |
 |---|---|---|
-| `followup_root` | *(required)* | e.g. `D:\\RG2019_CAMERAS\\FOLLOWUP_2026` |
-| `inbox`, `raw`, `synced`, `logs_qc` | `00_INBOX`, `01_RAW`, `02_SYNCED`, `99_LOGS_QC` | folder names under the root (INBOX and RAW must be on the same volume) |
-| `participant_id_regex` | `^ID\d{4,8}$` | valid participant folder names (e.g. `ID100392`) |
-| `mom_pattern`, `child_pattern` | `_mom`, `_child` | case-insensitive substring of the file name |
-| `video_extensions` | mp4, avi, mov, mkv | |
-| `require_ready_marker` | `false` | if `true`, `00_INBOX/IDxxxx/READY.txt` must exist |
-| `stability_minutes` | `120` | age rule + prior-observation timer (see below). `0` disables **only those two**: transfer-file blocking and the growth re-check stay active |
-| `stability_recheck_seconds` | `5` | re-stat files after this pause to catch files still growing; active **even when `stability_minutes` is `0`** (set this to `0` to switch it off) |
-| `stability_requires_prior_observation` | `true` | files must also have been seen unchanged by a *previous run* (see below) |
-| `create_side_by_side` | **`false`** | also create `IDxxxx_side_by_side.mp4` (large) |
-| `max_attempts` | `3` | automatic retries for `SYNC_FAILED`/`ENCODE_FAILED` |
-| `sync.*` | see file | sample rate (8000 Hz), `max_lag_seconds` (120), window length (60 s), thresholds; `min_agreeing_windows` must not exceed `fine_windows` |
-| `encode.*` | `fast`, CRF 20, 192k | x264 preset/CRF, AAC bitrate, `copy_untrimmed_when_possible` |
-| `ffmpeg`, `ffprobe` | `ffmpeg`, `ffprobe` | names on `PATH` or absolute paths |
+| Researcher / operator | **[Getting started](docs/product/GETTING_STARTED.md)** | Install dependencies, run tests and execute a completely invented, local synthetic demonstration |
+| Epidemiologist / methods reviewer | **[Scientific method and QC](docs/product/SCIENTIFIC_METHOD.md)** | Mathematical offset, confidence gates, empirical limitations and validation requirements |
+| AI assistant / developer | **[AI adaptation guide](docs/product/AI_ADAPTATION_GUIDE.md)** | Exact code-reading order, invariants, test contract and reusable implementation instructions |
+| Data steward / collaborator | **[Public/private policy](docs/product/PUBLIC_PRIVATE_POLICY.md)** | What may and may not go into GitHub |
+| Product reporting / publication | **[Release checklist](docs/product/RELEASE_CHECKLIST.md)** | Requirements for a citable, versioned scientific technical product |
+| Technical historian | **[Engineering journal](docs/VIDEO_SYNC_ENGINEERING_JOURNAL_WIP.md)** | Dates, SHAs, historical bugs, attempts, decisions and lessons learned |
+| Infrastructure architect | **[Public-safe architecture](docs/GPIS_INFRASTRUCTURE_ARCHITECTURE_WIP.md)** | Conceptual data path and role separation, without private network details |
 
-Unknown keys are rejected (typo protection).
+Additional implementation specifications: [field discovery](docs/FIELD_DISCOVERY.md), [delivery contract v2](docs/DELIVERY_V2.md), [guarded preproduction](docs/PREPRODUCTION.md), [synthetic harness](docs/SYNTHETIC_PIPELINE.md), [legacy audit](docs/LEGACY_AUDIT.md), and [storage permission design](docs/STORAGE_PERMISSIONS.md).
 
-## 4. Running
+## Conceptual pipeline
 
-```bat
-:: 1) ALWAYS start with a dry run: nothing is moved, encoded, written or deleted
-python pipeline_rg2019.py --config config.json --dry-run
-
-:: 2) real run (this is what the scheduled task does)
-python pipeline_rg2019.py --config config.json
+```text
+Dual research cameras (mother / child / auxiliary)
+                |
+                v
+ Field selection + definitive names + closure declaration [FUTURE FIELD ADAPTER]
+                |
+                v
+ Research NAS 00_INBOX + external delivery manifest
+                |
+           Verify all declared files / SHA-256
+                |
+                v
+  Review participant + session UUID + game pairing
+                |
+             [EXPLICIT AUTHORIZATION]
+                v
+    Read-only originals → local scratch copy
+                |
+        FFmpeg audio extraction
+                |
+      Offset search → independent confidence/QC
+                |
+        Trim correct camera → encode MP4
+                |
+      Two views + side-by-side + provenance
+                |
+       [TECHNICAL QC + SCIENTIFIC QC]
+                v
+   Verified publication and logs, no overwrite
 ```
 
-Other options: `--participant IDxxxx` (repeatable; restrict to those IDs), `--reprocess IDxxxx`, `--manual-offset SECONDS`,
-`--log-level DEBUG`. Exit code `0` = fine, `2` = something needs manual review/failed, `3` = config/tool/lock problem.
-The run ends with a summary (Newly completed / Skipped completed / Waiting / Manual review / Failed, with IDs).
-Daily scheduling: [docs/WINDOWS_TASK_SCHEDULER.md](docs/WINDOWS_TASK_SCHEDULER.md).
+**Legend:** not all steps shown above are implemented or live. See the [release gate](docs/product/RELEASE_CHECKLIST.md) and [actual status](#actual-implementation-and-validation-status). No direct network address, account or access method is specified in this public design.
 
-**Dry run** does read-only work only: it applies the readiness/stability rules, discovers and `ffprobe`s the videos and
-prints the exact steps that *would* happen. It does not hash, move, extract audio, encode, or write state/CSV/log files.
-(It also cannot know the sync offset before audio analysis, so it reports the encode step generically.)
+### Five states that must remain independent
 
-> **Dry-run and the prior-observation timer.** With the default `stability_requires_prior_observation=true` and
-> `stability_minutes>0`, a new participant must first be *seen unchanged by a previous real run*. A dry-run deliberately
-> writes no state, so it can never record that first observation: repeated dry-runs will keep reporting new participants
-> as waiting ("first observation ..."). The pipeline prints a warning (and repeats it in the summary) when this applies.
-> For a **one-off full pilot dry-run**, temporarily set `"stability_requires_prior_observation": false` in your config -
-> the dry-run itself stays non-mutating - and **restore it to `true` before real/scheduled runs**.
+**Discovery → Receipt → Integrity → Technical processing → Scientific QC/authorization.** A pair that looks plausible is not automatically a complete delivery. `ReceptionVerified` is not `QCApproved`. A file named `COMMITTED.json` does not certify scientific synchronization, even if all bytes are intact. Scientific reviewers must approve criteria and outcomes independently.
 
-### Readiness: what "not still synchronising" means
+### Correct sign convention (do not reverse)
 
-For a participant in INBOX the pipeline waits (`WAITING_FOR_READY` / `WAITING_FOR_STABILITY`) unless **all** of these hold:
+For the same sound event:
 
-1. if `require_ready_marker`: `READY.txt` exists (the shared PC should create it **last**);
-2. **always, regardless of `stability_minutes`:** no transfer-in-progress files are present anywhere in the participant
-   folder (`.tmp`, `.partial`, `.part`, `.crdownload`, `.download`, `.filepart`, `.~*`, `~$*`, `.syno*`) - such a file blocks
-   processing and nothing is moved into RAW;
-3. only if `stability_minutes>0`: no file was modified in the last `stability_minutes`;
-4. only if `stability_minutes>0` and `stability_requires_prior_observation`: the same file list/sizes/mtimes were already recorded
-   by an earlier real run at least `stability_minutes` ago - Synology Drive preserves the original file mtime, so mtime alone
-   cannot show that a download just finished. **With the defaults a new participant is therefore first *seen* on one run and
-   processed on a later run (normally the next day).** Set it to `false` to accept same-day processing using the other rules;
-5. **always while `stability_recheck_seconds>0`** (default 5, also when `stability_minutes=0`): the list of files, their sizes and
-   mtimes are identical after that pause (files that *appear or disappear* during the pause count as changes), so a file that is
-   still growing or arriving is caught. This is the safer behaviour; set `stability_recheck_seconds`
-   to `0` only if you accept that risk.
+```text
+offset = event_time_inside_mother_video - event_time_inside_child_video
 
-`stability_minutes=0` therefore disables only rules 3 and 4.
-
-`READY.txt` can reach the workstation *before* large videos finish downloading, so the stability rules still apply when it is required.
-`READY.txt` is removed from INBOX after promotion and is never copied to RAW.
-
-### Which files are chosen
-
-Exactly one video whose name contains `_mom` and exactly one containing `_child` (any of the configured extensions,
-case-insensitive, top level of the participant folder). **The first match is never silently taken:** zero -> `MISSING_FILES`,
-more than one (or one matching both patterns) -> `AMBIGUOUS_FILES`; the participant stops and is listed for manual review.
-Other files in the participant folder (notes etc.) are moved to RAW together with the videos as original material.
-
-### Synchronisation
-
-`offset_seconds = t_mom(event) - t_child(event)` (= child start - mom start).
-`offset > 0`: the mother camera started **earlier**, so `offset` seconds are trimmed from the **start of the mother** video;
-`offset < 0`: `|offset|` seconds are trimmed from the **start of the child** video. After trimming, both outputs start at
-the same real-world moment. Outputs are not cut at the end (the two files may differ in length).
-
-Estimator (details in `rg2019/syncest.py`): mono audio is decoded by ffmpeg at 8 kHz to a temp file and memory-mapped
-(RAM use is one analysis window, not the whole recording). *Coarse stage*: 7 windows spread over the recording are
-matched (normalised cross-correlation via FFT) against the other file within +-`max_lag_seconds`; a cluster of agreeing
-windows gives the coarse offset. *Fine stage*: 5 windows spread over the whole overlap (inset by the +-2 s search range so every window lies inside both files), searched +-2 s,
-sub-sample interpolation, median. Windows must be **distinct** (start >= half a window apart); if the aligned overlap is too short
-to hold enough distinct windows the result is `LOW_CONFIDENCE`, never a success built from repeated copies of one window.
-**SUCCESS requires** >= `min_agreeing_windows` (3) distinct fine windows (>= 60 %) agreeing within 0.25 s, each with a clear correlation
-peak (NCC >= 0.05, peak >= 1.5x any competing peak), and a coarse consensus. Otherwise `LOW_CONFIDENCE` (no videos are made).
-`sync_confidence` = median NCC of the agreeing windows x fraction agreeing (0-1). The per-window results and the
-spread (max-min of the window offsets, a clock-drift indicator) are stored in the state file.
-Assumption: a **constant** offset (no clock-drift correction).
-
-### Encoding decisions
-
-* The camera that needs **no trim** is stream-copied (no quality loss, fast) when it is H.264/HEVC + AAC/MP3; otherwise re-encoded.
-* The **trimmed** camera is always re-encoded (frame-accurate cut): libx264, CRF 20, preset `fast`, yuv420p, AAC 192k, `+faststart`.
-* Only the first video and first audio stream are kept in the outputs (RAW keeps everything).
-* Each output is written as `*.mp4.partial`, validated with `ffprobe` (video+audio, duration within 1.5 s of expected), then renamed atomically.
-
-## 5. Statuses
-
-| Status | Meaning | What happens next |
-|---|---|---|
-| `SUCCESS` | in RAW, synced, outputs recorded | skipped on later runs |
-| `WAITING_FOR_READY` / `WAITING_FOR_STABILITY` | not ready / possibly still syncing | re-checked every run |
-| `MISSING_FILES` / `AMBIGUOUS_FILES` | no / several mom or child videos | stays in INBOX; fix the folder, re-checked every run |
-| `INVALID_VIDEO` / `NO_AUDIO` | unreadable, no video stream, zero duration / no audio stream | stays in INBOX; re-checked every run |
-| `INVALID_ID` | folder name not a valid participant id | reported only; nothing recorded |
-| `RAW_CONFLICT` | RAW folder exists with different/incoming material, or RAW changed after validation | **manual intervention**; nothing touched |
-| `LOW_CONFIDENCE` | offset not trustworthy | in RAW, **no videos made, not retried automatically**; review, then `--reprocess` / `--manual-offset` |
-| `SYNC_FAILED` / `ENCODE_FAILED` | ffmpeg/ffprobe error, disk full ... | retried each run up to `max_attempts`, then needs `--reprocess` |
-| `OUTPUT_CONFLICT` | a file exists in `02_SYNCED` that the state does not know | never overwritten; move/rename it, re-run |
-| `PROMOTE_FAILED` | the move INBOX -> RAW hit an OS error (e.g. locked file) | safe; resumes on the next run |
-| `INTERNAL_ERROR` | unexpected exception (see log) | other participants unaffected |
-| `RAW_PROMOTED` | transient: in RAW, sync not finished | resumes on the next run |
-
-## 6. Manual reprocessing (safely)
-
-```bat
-:: what would happen?
-python pipeline_rg2019.py --config config.json --participant ID100392 --reprocess ID100392 --dry-run
-:: recompute from RAW (previous outputs are MOVED to 02_SYNCED\ID100392\_superseded_<timestamp>\, never deleted)
-python pipeline_rg2019.py --config config.json --participant ID100392 --reprocess ID100392
-:: accept a reviewed offset for a LOW_CONFIDENCE participant (positive trims mom, negative trims child)
-python pipeline_rg2019.py --config config.json --participant ID100392 --reprocess ID100392 --manual-offset 12.34
+offset > 0  → mother video started earlier → trim mother at its beginning
+offset < 0  → child video started earlier  → trim child at its beginning
+offset = 0  → neither leading edge needs trimming
 ```
 
-To re-run after fixing a problem that is not a sync problem (e.g. a moved conflicting file) no flag is needed.
-Never edit `01_RAW`. Do not delete state files casually: without state a finished participant has un-recorded outputs
-and becomes `OUTPUT_CONFLICT` (safe, but needs a manual step). Turning `create_side_by_side` on later does **not**
-retro-generate files for completed participants; use `--reprocess` for those you want. Once a side-by-side file has been
-created and `create_side_by_side` is on, it is part of the completion check: if it is later deleted it is regenerated from the
-synced videos on the next run; if it exists but differs from the recorded size it is flagged `OUTPUT_CONFLICT` and never overwritten.
+The algorithm currently assumes **constant lag**, not clock-drift correction. A difference between the two **recording durations is not evidence of the start offset**.
 
-## 7. Troubleshooting
+## Quick, safe evaluation
 
-* *`ffmpeg was not found`* - use absolute paths in `config.json` (scheduled tasks often lack your `PATH`).
-* *Participant stays in WAITING in every dry-run* - expected with the default prior-observation rule (dry-run cannot record it); see the dry-run note above.
-* *Participant stays in WAITING* - read the message in `pipeline_status.csv` (`error_message`) or the log; with the default
-  settings the first sighting always waits. Lower `stability_minutes`, or set `stability_requires_prior_observation=false`.
-* *`another pipeline run appears to be active`* - a run is in progress or crashed. A live run refreshes the lock's modified time
-  every minute (heartbeat), so a long batch is never taken over, however long it runs. A lock whose heartbeat stopped
-  (crashed run) is replaced automatically after `lock_stale_hours`; otherwise delete `99_LOGS_QC\pipeline.lock` once you are sure
-  nothing is running.
-* *`PROMOTE_FAILED`* - a file was open/locked (Synology Drive, antivirus); just re-run. INBOX and RAW must be on one volume.
-* *`LOW_CONFIDENCE`* - inspect `99_LOGS_QC\state\IDxxxx.json` (`sync.details`): quiet recordings, camera mics far apart,
-  an offset larger than `max_lag_seconds`. Play both videos, decide, use `--manual-offset`.
-
-## 8. Development and tests
+Requirements: **Python 3.12**, `ffmpeg`, `ffprobe` (with H.264/AAC functionality) and Git. Use a virtual environment. The code below deliberately uses a **pinned review commit** containing the documented synthetic features. The default `main` branch is older than the stacked draft PRs.
 
 ```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest            # ~1.5 min; needs ffmpeg; uses only synthetic media generated on the fly
+git clone https://github.com/chlmz/research-video-sync.git
+cd research-video-sync
+git fetch origin codex/gpis-delivery-v2
+git switch --detach a21279d6c7313d65eb1239e70f1bae3ae62b1420
+
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install -r requirements-dev.txt
+./.venv/bin/python -m pytest -ra
+./.venv/bin/python examples/preproduction_demo.py --root /tmp/rg2019-new-synthetic-demo
 ```
 
-Layout: `pipeline_rg2019.py` (CLI), `rg2019/` (`config`, `discovery`, `media`, `syncest`, `state`, `pipeline`, `statuses`),
-`tests/`, `docs/`. **Never commit research data**: this repository is public and `.gitignore` excludes media, tables,
-logs, participant folders, pipeline state and local configs. Tests never read real study files.
+Those shell commands target Linux/macOS. On Windows, use the matching [PowerShell instructions](docs/product/GETTING_STARTED.md). The demo root must be **new and local**. The demo generates artificial recordings, verifies known 2-second offsets for resolvable pairs, deliberately blocks ambiguous cases, and exercises publication recovery. It does **not** validate actual cohort data.
 
-## 9. Assumptions and known limits
+### Optional: receipt-contract CLI
 
-* Constant offset assumed (drift is reported as `offset_spread_seconds`, not corrected).
-* First audio stream of each file is used; both cameras must record the same room sound.
-* Not tested on Windows itself (developed on Linux); path handling is `pathlib` throughout and a Windows-path unit test exists.
-* Very large offsets (> `max_lag_seconds`) are reported `LOW_CONFIDENCE`, not guessed.
+`rg2019.delivery_v2` provides a manifest generator/verifier for **synthetic locally selected files**:
+
+```text
+python -m rg2019.delivery_v2 generate --root SYNTHETIC_SELECTION --manifest EXTERNAL_MANIFEST.json --participant 000001 --session-id CANONICAL_SESSION_UUID --closed-at ISO_TIMESTAMP_WITH_OFFSET --closed
+
+python -m rg2019.delivery_v2 verify --root SYNTHETIC_RECEIVED_SCOPE --manifest EXTERNAL_MANIFEST.json --participant 000001 --session-id THE_SAME_UUID
+```
+
+`SYNTHETIC_SELECTION` must contain invented files with stable final names. The manifest must be **outside** that directory; the `session_id` must be a real canonical UUID for the same synthetic test identity. The [user guide](docs/product/GETTING_STARTED.md) gives a complete runnable example using files produced by the synthetic demo.
+
+## Actual implementation and validation status
+
+The following is **as verified for commit `a21279d6c7313d65eb1239e70f1bae3ae62b1420`**, not a claim about unreviewed future commits.
+
+| Capability | Evidence / status |
+|---|---|
+| Recursive file discovery and conservative mother/child, session and game classification | Implemented and tested with synthetic fixtures |
+| Unique unnumbered pair → inferred game 1, only with explicitly reviewed session | Implemented behind a review gate |
+| Delivery contract `rg2019.delivery.v2`: independent session UUID, all selected files/auxiliaries, SHA-256 and exclusions | Implemented and tested synthetically |
+| Existing offset estimator: 8 kHz audio, coarse windows ±120 s, NCC/peak/consensus tests, fine correction | Implemented, works with generated fixture audio |
+| Global wide-offset FFT as a *candidate* stage, based on September experience | **Proposed, not yet implemented at this SHA** |
+| Isolated local synthetic processing, two MP4s, immutable results and recovery | Implemented; real execution blocked |
+| Side-by-side encoding | Existing API, **not integrated into safe end-to-end flow** |
+| Live field source admission, automatic NAS publication, daily scheduler | **Not authorized/implemented as a safe production path** |
+| Real recording scientific alignment | **Not yet validated**; first controlled pair returned 0/7 confident coarse windows |
+| Human scientific QC and release authorization | **NotApproved / pending** |
+| Windows/Ubuntu CI at this SHA | [Actions run 41157402895](https://github.com/chlmz/research-video-sync/actions/runs/41157402895): Windows **296 passed**, Ubuntu **295 passed / 1 Windows-specific skip**; no failures. **Synthetic only** |
+
+An actual pair from the cohort was inspected under private controls, with original/copy hashes preserved and visible video reportedly playable. The old estimator returned no confidence and appropriately refused to generate a synchronized result. **Do not treat this as evidence that the data are invalid, or quietly force an offset.** The developer journal keeps the error history so it cannot be forgotten.
+
+## Repository map
+
+```text
+pipeline_rg2019.py                 historical Python CLI (legacy live move semantics)
+rg2019/syncest.py                  current windowed audio estimator
+rg2019/media.py                    FFmpeg/FFprobe/audio/encode/side-by-side helpers
+rg2019/discovery.py                conservative participant/session/game inventory
+rg2019/delivery_v2.py              v2 selected-file receipt contract and CLI
+rg2019/preproduction.py            guarded synthetic preproduction API/CLI
+rg2019/storage.py                  bounded copy, attempt and committed-result primitives
+rg2019/synthetic_worker.py         two-output synthetic scientific worker
+examples/preproduction_demo.py     complete local generated-fixture demonstration
+examples/synthetic_demo.py         earlier isolated publication/recovery demonstration
+tests/                             generated-media regressions; no cohort media
+docs/product/                      human guide, scientific method, AI instructions and release gate
+docs/VIDEO_SYNC_ENGINEERING_JOURNAL_WIP.md
+                                    decision history and known failures
+sync_research_project.sh            September historical script — DO NOT DEPLOY
+sync_videos.sh                      September historical script — DO NOT DEPLOY
+```
+
+September's `sync_research_project.sh` successfully demonstrated full-audio FFT offset-search behavior on controlled test signals and was reported useful for earlier pilots, but also had unguarded global maxima, batch bugs and no scientific QC. `sync_videos.sh` had the **wrong-camera trim** error. Their existence in the repository is for provenance and regression testing. See [the audited errors](docs/LEGACY_AUDIT.md) and [historical README](https://github.com/chlmz/research-video-sync/blob/a21279d6c7313d65eb1239e70f1bae3ae62b1420/README.md); neither is a current deployment recommendation.
+
+## Sharing and privacy
+
+Public code, scientific methods and **synthetic fixtures** are encouraged; raw or derived human-participant media, real IDs/linkage keys, identifying logs and internal infrastructure information are **not**. A public-facing architecture abstraction and the **private** full operations/identity/NAS README are intentionally separate.
+
+Read the mandatory [public/private policy](docs/product/PUBLIC_PRIVATE_POLICY.md). Do not open a public issue or PR with real recordings, actual participant paths, server accounts, IP addresses, credential dumps or raw diagnostic logs. `.gitignore` is not protection against mistakenly pasted text or historical commits.
+
+## Citation, licensing and product release
+
+This repository is intended to become a citable technical/scientific software product of the Rio Grande 2019 cohort. **The reviewed tree does not yet include an approved LICENSE, `CITATION.cff`, a tagged scientific release or a DOI.** Public visibility does not itself grant unrestricted reuse permission. Institutional authorship, software licensing, credits and release metadata require approval before claiming an official open-source release.
+
+See [release checklist and technical-product reporting fields](docs/product/RELEASE_CHECKLIST.md). The documentation will be finalized only after synthetic tests, controlled real-media alignment, independent QC, output publication and operational security gates are satisfied. **This public README is a review draft, not the final product citation.**
+
+## Maintenance principles
+
+- Pin exact commits or release tags when validating claims.
+- Distinguish code/CI evidence, operator report, manual scientific observation and hypothesis.
+- Preserve failed approaches and why they failed, rather than rewriting history.
+- Test changes against synthetic data first, and keep ingestion, technical success and scientific QC separate.
+- Publish only sanitized documentation. Keep exact network configuration and the operations manual privately, **without embedded secrets**.
+
+For an AI implementing an equivalent workflow in another cohort, start with the **[AI adaptation guide](docs/product/AI_ADAPTATION_GUIDE.md)** rather than trying to infer behavior from filenames or the September shell scripts.
