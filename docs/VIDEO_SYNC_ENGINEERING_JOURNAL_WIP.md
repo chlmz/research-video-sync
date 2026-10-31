@@ -110,7 +110,7 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[USER DECISION]** El responsable corrigió la estrategia: la técnica de **palmadas/anclas audiovisuales manuales ya se había discutido y descartado** como requisito de sincronización. No se repetirá esa propuesta como condición para avanzar. La decisión de «buscar ancla» documentada arriba queda **SUPERADA/SUSTITUIDA**; conservarla solo como evidencia de la desviación.
 - **[USER DECISION]** El algoritmo que había funcionado con pilotos en septiembre, `sync_research_project.sh` (ruta NumPy), debe reutilizarse **tal como calculaba el offset**: correlación FFT del audio completo a 16 kHz, RMS normalizado, máximo global y recorte correcto, seguido de **dos MP4 y composición lateral**. No introducir en ese adaptador filtros NCC/ventanas cuya falta de candidatos impidió el ensayo.
 - **[CODE]** Se implementó un adaptador independiente `sync_september_field.py` en el [PR #10 Draft](https://github.com/chlmz/research-video-sync/pull/10) sobre la rama FFT experimental. Adapta el método a participante → **sesión revisada** → subcarpetas de cámara/DCIM → juegos `mother1/children1`, `mother2/children2`. Corrige únicamente el índice FFT del lag lineal para duraciones muy desiguales, sin invertir recortes. Evita parejas ambiguas, mueve los datos **solo mediante copia verificable a scratch local** y **nunca escribe en RAW/INBOX ni NAS**.
-- **[CODE/TEST]** El nuevo script crea los tres MP4 y reportes JSON/CSV únicamente locales, con estado `CANDIDATE_FOR_MANUAL_QC` / `NotApproved`. **12 pruebas sintéticas focalizadas PASS**, incluida una exportación FFmpeg completa; falta ejecución con las fuentes reales del piloto. Véase [código](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/sync_september_field.py) y [guía](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/docs/SEPTEMBER_FIELD_ADAPTER.md).
+- **[CODE/TEST]** El nuevo script crea tres MP4 y reportes JSON/CSV únicamente locales, con estado `CANDIDATE_FOR_MANUAL_QC` / `NotApproved`. **12 pruebas sintéticas focalizadas PASS**, incluida una exportación FFmpeg completa. **La primera ejecución real fue reportada posteriormente como PASS técnico, ver entrada del 31/10.** Véase [código](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/sync_september_field.py) y [guía](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/docs/SEPTEMBER_FIELD_ADAPTER.md).
 - **[SCIENTIFIC DISTINCTION]** Recuperar el máximo FFT histórico no garantiza que sea un offset cierto en audios poco comparables. La decisión es **generar candidatos audiovisuales como antes para revisión posterior**, sin afirmar QC aprobado, sin usar el pico NCC previamente rechazado como offset y sin degradar el estado de evidencia/seguridad.
 - **[PRODUCT LESSON]** El algoritmo y los bloqueos de recepción/infraestructura son componentes distintos: no alterar una estrategia funcional de estimación al adaptar el árbol de carpetas; aislar los nuevos controles operativos para que no invaliden un flujo que producía resultados revisables.
 
@@ -119,6 +119,15 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[HANDOFF ERROR]** Se transmitió por error un identificador de commit no existente para el adaptador de septiembre. El agente de ejecución comprobó que no existía en GitHub y detuvo el intento **sin procesar fuentes ni crear MP4**.
 - **[VERIFIED FIX]** Se consultaron directamente el PR #10 y el commit de GitHub: SHA correcto `0a143d33862a274e3e9c8ed25495121218a9acac` en `codex/gpis-september-field-adapter`, PR #10 en borrador. La referencia fue corregida y el responsable autorizó continuar exclusivamente con el ensayo local previsto; el QC sigue `NotApproved` hasta tener resultados reales.
 - **[LESSON]** Los traspasos a Work/Codex deben copiar el SHA exacto y verificarlo contra la rama remota/PR antes de lanzar procesamiento. Nunca reconstruir un SHA manualmente ni dar por correcto un prefijo parecido. Los errores de referencia no justifican cambiar la lógica del pipeline.
+
+### 2026-10-31 — primer ensayo real completo del adaptador de septiembre: tres MP4 de QC generados
+
+- **[FIELD REPORT / WORK]** Tras corregirse el SHA de traspaso y verificar el checkout del PR #10, Work ejecutó **una** prueba local del método NumPy FFT completo de septiembre sobre el par de AVI ya conservado en scratch privado. La ejecución **terminó sin error de FFmpeg** y produjo tres salidas locales: vista madre, vista niño y composición lado a lado.
+- **[FIELD REPORT / WORK]** La FFT histórica produjo un desfase **positivo** y, de acuerdo con la convención verificable del script, recortó el inicio de la **madre**, sin recortar el inicio del vídeo del niño. La comprobación posterior de hashes informó que las dos copias originales permanecieron intactas. Los tiempos, rutas, SHA-256 de medios y datos individuales figuran exclusivamente en el **registro QC privado**.
+- **[RESULTADO TÉCNICO]** **PASS de procesamiento/exportación real** en el adaptador histórico: tres MP4 presentes, más informe de resultado, duración y hashes, según evidencia reportada por Work. No existe todavía constancia de revisión humana independiente del sincronismo en inicio/medio/final.
+- **[LÍMITE CIENTÍFICO]** El método de septiembre elige el máximo de correlación global sin superar los criterios de la vía Pearson/NCC experimentada; un resultado procesado **no equivale a un desfase científicamente validado**. Mantener `QC=NotApproved`, no usar para análisis/publicación científica y no subir esos medios al repositorio público.
+- **[DECISIÓN OPERATIVA]** No cambiar el algoritmo ni repetir pruebas de RAM, red, CI o umbrales. La siguiente acción mínima es **abrir el lado a lado ya generado y observar inicio, mitad y final** para comprobar que las vistas corresponden al mismo episodio y están alineadas. No exigir palmadas ni producir nuevos eventos de calibración. Solo luego decidir promoción/escala.
+- **[ALCANCE]** Este éxito usa el adaptador local PR #10; **no demuestra** que el pipeline automático anterior (que movía INBOX→RAW) ni la nueva ingestión NAS estén desplegados o autorizados.
 
 ## 3. Matemática esencial de sincronización
 
@@ -283,9 +292,9 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ## 11. Pendientes y próximos hitos
 
 - **[CI / OPEN]** PR #9 en Draft, SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`: 309 PASS Windows; 308 PASS + 1 SKIP Ubuntu. La revisión inicial del código no detectó regresión matemática reproducible; falta medir recursos reales y validar audio local sin activar el pipeline. Modo global sigue desactivado por defecto.
-- **[OPEN]** **PR #10 listo para revisión (método de septiembre):** ejecutar SOLO el adaptador en las copias locales existentes, producir tres MP4 candidatos y evaluar reproducción/sincronía de inicio, mitad y final. No pedir palmadas ni anclas manuales; no modificar ni ejecutar de nuevo el FFT de ventanas/NCC para este ensayo.
+- **[FIELD REPORT / OPEN]** **PR #10 ya produjo los tres MP4 locales reales con el método de septiembre.** Ahora resta únicamente abrir la composición lateral existente y revisar sincronía de comienzo, mitad y final. No pedir palmadas ni anclas manuales; no repetir FFT ni pruebas de infraestructura.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
-- **[OPEN]** Generar dos MP4 y side-by-side locales y registrar QC manual de inicio, medio y final. **No declarar hecho aún.**
+- **[FIELD REPORT / OPEN]** **Tres MP4 locales ya generados por Work;** falta exclusivamente la revisión científica visual/auditiva de comienzo, mitad y final, antes de cualquier `QCApproved`. La generación por sí sola no equivale a validación.
 - **[OPEN]** Establecer tolerancia de desfase/deriva, tasas de fallos y criterios de aprobación.
 - **[OPEN]** Adaptar límites de recursos para grabaciones reales, hacer ensayo end-to-end, definir carpetas con sesión/juego, permisos NAS y autorización explícita.
 - **[OPEN]** Integrar generador `delivery.v2` con herramienta de copia de FURG cuando haya acceso.
@@ -310,6 +319,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v0.8 · 2026-10-31** — Work informó PASS técnico del adaptador de septiembre con los tres MP4 locales y hashes de copias intactos. Offset exacto y rutas reales permanecen privados; falta QC visual/auditivo, sin despliegue NAS.
 
 - **v0.7 · 2026-10-31** — Se registró transcripción equivocada del SHA al delegar prueba local a Work; el preflight bloqueó correctamente. Se verificó el SHA actual de PR #10 y se autorizó el ensayo sin producción ni cambios en los originales.
 
