@@ -136,6 +136,12 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[OPERATIONS]** La ausencia de vídeos en `02_SYNCED` fue explicada: el adaptador está diseñado para escribir únicamente en un directorio privado local de QC y no publica automáticamente en Synology. Abrir esa carpeta en el Explorador de Windows (no ejecutarla como comando PowerShell). La publicación futura debe ser una **copia verificada y no destructiva** cuando haya ruta, permisos y aprobación definidos.
 - **[PRIVACY]** Identificadores de caso, rutas locales completas, offset, duración individual e informes técnicos siguen exclusivamente en el registro QC privado.
 
+### 2026-10-31 — confirmación explícita de sincronía perfecta del piloto
+
+- **[MANUAL / USER REPORT]** Tras abrir los resultados del adaptador FFT NumPy de septiembre, el responsable científico confirmó expresamente **«sincro perfeita»**. Se registra como **PASS de inspección visual comunicada por el investigador**, además del PASS previo de generación de los tres MP4.
+- **[LIMIT]** No se han recibido aquí métricas numéricas independientes de desfase residual ni una revisión formal detallada de cada punto del vídeo. La confirmación visual del responsable es una evidencia positiva importante, pero la aprobación formal de QC, promoción a resultados oficiales y publicación NAS deben quedar como decisiones separadas.
+- **[NEXT]** Conservar esta implementación y su SHA, sin introducir nuevamente palmadas ni pruebas NCC que bloquearon el resultado. Preparar copia verificada y no destructiva a la estructura correcta del NAS solo con autorización operativa y criterio de salida, sin tocar fuentes RAW.
+
 ## 3. Matemática esencial de sincronización
 
 ### 3.1 Convención del desfase (NO cambiar sin tests)
@@ -326,6 +332,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v1.0 · 2026-10-31** — El investigador confirmó expresamente «sincro perfeita» tras inspección visual de los vídeos del adaptador histórico. PASS visual reportado, QC formal y publicación NAS aún independientes.
 
 - **v0.9 · 2026-10-31** — El investigador reportó sincronía visual de los MP4 candidatos. Se aclaró que residen en scratch local del servidor y no en el NAS. QC formal/publicación siguen sin autorizarse.
 
