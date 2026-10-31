@@ -105,6 +105,15 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[DECISION]** Detener barridos de parámetros y cambios de algoritmo. El siguiente paso científico es identificar al menos un evento audiovisual inequívocamente compartido entre ambas fuentes y anotar sus tiempos locales, idealmente dos eventos separados para evaluar deriva temporal. La coincidencia manual sería **un ancla diagnóstica**, no aceptación científica automática.
 - **[PRIVATE]** Guardar fuera del repositorio público los tiempos individuales, picos NCC, posiciones de lag, duraciones, hashes de media, identificadores y archivos de evidencia. Aquí se documenta únicamente el razonamiento metodológico transferible a otro proyecto.
 
+### 2026-10-31 — corrección explícita de rumbo: volver al método de septiembre (decisión del investigador)
+
+- **[USER DECISION]** El responsable corrigió la estrategia: la técnica de **palmadas/anclas audiovisuales manuales ya se había discutido y descartado** como requisito de sincronización. No se repetirá esa propuesta como condición para avanzar. La decisión de «buscar ancla» documentada arriba queda **SUPERADA/SUSTITUIDA**; conservarla solo como evidencia de la desviación.
+- **[USER DECISION]** El algoritmo que había funcionado con pilotos en septiembre, `sync_research_project.sh` (ruta NumPy), debe reutilizarse **tal como calculaba el offset**: correlación FFT del audio completo a 16 kHz, RMS normalizado, máximo global y recorte correcto, seguido de **dos MP4 y composición lateral**. No introducir en ese adaptador filtros NCC/ventanas cuya falta de candidatos impidió el ensayo.
+- **[CODE]** Se implementó un adaptador independiente `sync_september_field.py` en el [PR #10 Draft](https://github.com/chlmz/research-video-sync/pull/10) sobre la rama FFT experimental. Adapta el método a participante → **sesión revisada** → subcarpetas de cámara/DCIM → juegos `mother1/children1`, `mother2/children2`. Corrige únicamente el índice FFT del lag lineal para duraciones muy desiguales, sin invertir recortes. Evita parejas ambiguas, mueve los datos **solo mediante copia verificable a scratch local** y **nunca escribe en RAW/INBOX ni NAS**.
+- **[CODE/TEST]** El nuevo script crea los tres MP4 y reportes JSON/CSV únicamente locales, con estado `CANDIDATE_FOR_MANUAL_QC` / `NotApproved`. **11 pruebas sintéticas focalizadas PASS**, incluida una exportación FFmpeg completa; falta ejecución con las fuentes reales del piloto. Véase [código](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/sync_september_field.py) y [guía](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/docs/SEPTEMBER_FIELD_ADAPTER.md).
+- **[SCIENTIFIC DISTINCTION]** Recuperar el máximo FFT histórico no garantiza que sea un offset cierto en audios poco comparables. La decisión es **generar candidatos audiovisuales como antes para revisión posterior**, sin afirmar QC aprobado, sin usar el pico NCC previamente rechazado como offset y sin degradar el estado de evidencia/seguridad.
+- **[PRODUCT LESSON]** El algoritmo y los bloqueos de recepción/infraestructura son componentes distintos: no alterar una estrategia funcional de estimación al adaptar el árbol de carpetas; aislar los nuevos controles operativos para que no invaliden un flujo que producía resultados revisables.
+
 ## 3. Matemática esencial de sincronización
 
 ### 3.1 Convención del desfase (NO cambiar sin tests)
@@ -268,7 +277,7 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ## 11. Pendientes y próximos hitos
 
 - **[CI / OPEN]** PR #9 en Draft, SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`: 309 PASS Windows; 308 PASS + 1 SKIP Ubuntu. La revisión inicial del código no detectó regresión matemática reproducible; falta medir recursos reales y validar audio local sin activar el pipeline. Modo global sigue desactivado por defecto.
-- **[OPEN]** **FFT global ya ejecutada con RAM suficiente; no se obtuvo candidato aceptado.** No ejecutar más barridos de ventanas, umbrales ni memoria. Identificar evento audiovisual común y corroborar el desfase entre ambas fuentes con marcas temporales independientes; únicamente después revisar limitaciones del estimador y, si corresponde, construir vídeos diagnósticos no aprobados.
+- **[OPEN]** **PR #10 listo para revisión (método de septiembre):** ejecutar SOLO el adaptador en las copias locales existentes, producir tres MP4 candidatos y evaluar reproducción/sincronía de inicio, mitad y final. No pedir palmadas ni anclas manuales; no modificar ni ejecutar de nuevo el FFT de ventanas/NCC para este ensayo.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
 - **[OPEN]** Generar dos MP4 y side-by-side locales y registrar QC manual de inicio, medio y final. **No declarar hecho aún.**
 - **[OPEN]** Establecer tolerancia de desfase/deriva, tasas de fallos y criterios de aprobación.
@@ -295,6 +304,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v0.6 · 2026-10-31** — Decisión explícita: se descarta la palmada como requisito, se abandona el ajuste reiterado de umbrales; PR #10 con la ruta FFT NumPy de septiembre adaptada a sesiones/juegos profundos, 11 tests sintéticos PASS, tres MP4 locales pendientes de evaluación científica.
 
 - **v0.5 · 2026-10-31** — Dos ensayos FFT globales reales realizados: el segundo, con ventanas más cortas, superó la puerta de solapamiento pero no la de similitud; sin offset validado, sin MP4 y QC NotApproved. Siguiente paso: evento audiovisual común, sin ajustar umbrales ni publicar métricas reales.
 
