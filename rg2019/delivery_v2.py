@@ -129,6 +129,8 @@ def save(root, destination, doc):
     contained(destination.parent, destination)
     if destination.resolve().is_relative_to(root.resolve()):
         raise ValueError('manifest must be outside selected scope (no self hashing)')
+    if verify(root, doc, participant=doc['participant'], session_id=doc['session_id'])['status'] != 'ReceptionVerified':
+        raise ValueError('selection changed before manifest publication')
     try:
         write_new(destination, doc)
     except FileExistsError:
