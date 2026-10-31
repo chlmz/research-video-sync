@@ -31,7 +31,8 @@ Do not describe this product as validated, certified, clinically appropriate or 
 - [x] Guarded synthetic workflow, deep discovery and versioned delivery contract exist in draft source branches.
 - [x] Implement **synthetic-only** wide-lag normalized FFT proposal with disjoint-window confirmation and preflight memory estimate in [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9) at `5cbd7ddad928d36b774476f0a34e28317fff5bc4`. **Not merged, released or empirically QC-approved.**
 - [x] Run the controlled estimator-only global FFT diagnostic with authorized local audio and measured memory; **neither tested configuration accepted a candidate**. No output was approved.
-- [ ] Locate and verify a common independent audiovisual anchor (preferably two temporally separated events), assess residual lag/drift, and use this evidence to decide whether the estimator needs a targeted change rather than lower acceptance thresholds.
+- [x] Implement September-style local FFT adapter for nested participant/session/game layouts in [draft PR #10](https://github.com/chlmz/research-video-sync/pull/10); 11 synthetic tests including full FFmpeg output pass. It deliberately omits NCC/window thresholds and **does not assert scientific QC**.
+- [ ] Run the September adapter with the already verified local media copies, inspect the candidate MP4s, and document scientific alignment/reproducibility. **No clap/manual event anchor is required by the researcher**.
 - [ ] Validate full-length field AVI/H.264/PCM behavior and timestamp consistency; distinguish harmless warnings from actual frame corruption.
 - [ ] Integrate scientifically reviewed session/game identity and final producer manifest with the field copy workflow.
 - [ ] Integrate side-by-side generation with the **safe** processing executor, if adopted as mandatory final output.
