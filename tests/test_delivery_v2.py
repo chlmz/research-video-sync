@@ -139,3 +139,16 @@ def test_deep_unicode_paths_and_recovery(selected, tmp_path):
     with pytest.raises(ValueError): v2.save(selected,dest,doc)
     assert dest.read_text() == '{'
     assert verify(selected,doc)['status'] == 'ReceptionVerified'
+
+
+def test_delivery_directory_not_arrived(selected, tmp_path):
+    assert verify(tmp_path / 'not-arrived', generate(selected))['status'] == 'WaitingForDelivery'
+
+
+def test_numbered_games_match_only_numbers(selected):
+    for p in selected.rglob('*.avi'): p.rename(p.with_name(p.stem + '1.avi'))
+    for role in ('mother','children'): (selected / (role + '2.avi')).write_bytes(b'game two')
+    cfg = from_dict(dict(followup_root=str(selected.parents[2]), field_sessions={'000001':['session']}))
+    result = v2.reception_plan(cfg,'000001','session',generate(selected),session_id=SID,session_reviewed=True)
+    assert [j['game'] for j in result['jobs']] == [1,2]
+    assert all(j['game_origin'] == 'explicit' for j in result['jobs'])

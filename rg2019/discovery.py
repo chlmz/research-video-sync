@@ -206,6 +206,7 @@ def discover_field(cfg: Config, participant: str, *, reviewed_sessions=()) -> di
         videos = [f for f in result['files'] if f['session'] == session and f['kind'] == 'Video']
         if (session in reviewed_sessions and session in cfg.field_sessions.get(participant, [])
                 and not result['issues'] and len(videos) == 2
+                and not any(f['session'] == session and f['kind'] in ('Other', 'TransferInProgress') for f in result['files'])
                 and {f['role'] for f in videos} == {'mom', 'child'}
                 and all(f['game'] is None and f['review_codes'] == ['REVIEW_GAME_UNSPECIFIED'] for f in videos)):
             for f in videos:

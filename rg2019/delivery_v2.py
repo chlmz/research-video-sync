@@ -113,6 +113,7 @@ def validate(doc):
             if path.casefold() in seen: raise ValueError('path collision')
             seen.add(path.casefold())
             if record['name'] != Path(path).name: raise ValueError('final name mismatch')
+            if record['game'] is not None and type(record['game']) is not int: raise ValueError('invalid game type')
             if record['original_name'] is not None: relative(record['original_name'])
             if type(record['size']) is not int or record['size'] < 0 or not isinstance(record['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', record['sha256']):
                 raise ValueError('invalid size/hash')
@@ -146,8 +147,13 @@ def verify(root, doc, *, participant, session_id):
         validate(doc)
         if doc['participant'] != participant or doc['session_id'] != session_id:
             raise ValueError('receiver session/participant identity conflict')
-        observed = inventory(root)
         expected = {r['path']: r for r in doc['files'] + doc['exclusions']}
+        scope = Path(root).absolute()
+        contained(scope, scope)
+        if not scope.exists():
+            result.update(status='WaitingForDelivery', missing=sorted(expected), additional=[], mismatches=[])
+            return result
+        observed = inventory(root)
         missing, additional = sorted(set(expected) - set(observed)), sorted(set(observed) - set(expected))
         bad = sorted(p for p in set(expected) & set(observed) if any(
             expected[p][k] != observed[p][k] for k in ('size', 'sha256')))
