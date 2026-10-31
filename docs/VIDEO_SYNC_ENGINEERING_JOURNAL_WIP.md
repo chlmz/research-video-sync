@@ -84,8 +84,8 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[CODE]** Cada candidato debe superar validación local con ventanas **disjuntas**, umbrales de NCC, relación de picos y consenso; si no hay exactamente un candidato validado, no se aprueba desfase. Los offsets mantienen la convención madre positiva; la corrección de inicio de pistas de audio se suma una sola vez.
 - **[CODE]** Se estima el costo de asignación **antes de ejecutar** la FFT, hasta un presupuesto configurado de **4096 MiB**; si excede presupuesto se rechaza la operación. Es una predicción de memoria, **no un límite de RAM impuesto por el sistema operativo**, y la opción estándar de 512 MiB puede no admitir grabaciones extensas.
 - **[CODE]** Se añadieron `docs/GLOBAL_FFT.md`, `tests/test_global_fft.py` y configuración de CI para la nueva rama. Los casos sintéticos cubren desfases largos y de ambos signos, duraciones asimétricas, silencio/no-relación, periodicidad, límites de memoria, fuentes mapeadas, timestamps y una prueba a 8 kHz. **La existencia de tests no equivale a que hayan pasado ni a QC real.**
-- **[CI / OPEN]** Se disparó el workflow `Python tests` para ese commit el 2026-10-31 02:42:49 UTC; al consultar, seguía **en ejecución**, sin conclusión publicada. Ver: https://github.com/chlmz/research-video-sync/actions/runs/41161224041 .
-- **[OPEN]** Revisar resultado de CI, corregir defectos documentados si surgieran, establecer PR de revisión y ejecutar una validación autorizada sobre los audios de diagnóstico. El modo sigue apagado, no se generaron archivos reales por este cambio.
+- **[CI]** El workflow `Python tests` para ese commit arrancó 2026-10-31 02:42:49 UTC y terminó **SUCCESS** 2026-10-31 02:46:52 UTC, con ambos jobs completados satisfactoriamente (**Ubuntu 24.04 y Windows 2022**). No se atribuyen recuentos de tests no verificados individualmente. Fuente: https://github.com/chlmz/research-video-sync/actions/runs/41161224041 .
+- **[OPEN]** Establecer PR de revisión, revisar críticamente el diseño y su presupuestación de memoria e implementar una validación autorizada sobre los audios de diagnóstico. El modo sigue apagado; la CI favorable no significa que haya generado archivos reales.
 
 ## 3. Matemática esencial de sincronización
 
@@ -131,7 +131,7 @@ En `rg2019/syncest.py` con parámetros por defecto de `rg2019/config.py`:
 - Estima desfase constante. `offset_spread_seconds` permite observar dispersión, **no corrige deriva de relojes**.
 - En la prueba real del piloto controlado no avanzó a la segunda etapa.
 
-**[CODE / OPEN — implementación nueva sin aceptación]** La rama experimental `codex/gpis-global-fft` contiene una implementación opt-in de propuesta global FFT + validación por ventanas (SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`). En el momento de esta revisión no hay PR ni CI concluido y no existe réplica sobre datos reales en el servidor. No tratar desarrollo experimental como aprobación.
+**[CODE / OPEN — implementación nueva sin aceptación]** La rama experimental `codex/gpis-global-fft` contiene una implementación opt-in de propuesta global FFT + validación por ventanas (SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`). En el momento de esta revisión no existe PR ni réplica sobre datos reales en el servidor; **CI sintética en Windows/Linux aprobada**. La aceptación científica sigue pendiente. No tratar desarrollo experimental como aprobación.
 
 ## 4. Contenedor y codificación: AVI no es un error por sí mismo
 
@@ -202,7 +202,7 @@ La publicación robusta de pruebas usa intents, verificaciones SHA-256, intentos
 | Offset correcto del piloto controlado juego 1 | **NO**: 0/7 ventanas; no estimado |
 | Tres MP4 del piloto controlado generados y científicamente correctos | **NO** |
 | Ausencia de errores de decodificación en todos los frames | **NO demostrado** |
-| Búsqueda global FFT en rama experimental | [CODE] Desarrollada, **desactivada por defecto**, no verificada en datos reales; CI pendiente |
+| Búsqueda global FFT en rama experimental | [CODE/CI] Desarrollada, **desactivada por defecto**, CI Windows/Linux favorable; NO verificada con vídeos reales |
 | Ejecución automática en vídeos reales y publicación NAS | **BLOQUEADA** |
 
 ## 8. Protocolo futuro de validación científica (no rellenar resultados a posteriori)
@@ -249,7 +249,7 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 
 ## 11. Pendientes y próximos hitos
 
-- **[OPEN]** Verificar CI del commit `5cbd7d...` y revisar matemáticamente signo, normalización, admisión de memoria, ambigüedad y comportamiento con audio no relacionado; falta PR para la rama experimental y el modo permanece desactivado.
+- **[CI / OPEN]** CI del commit `5cbd7d...` aprobada en Windows y Linux; revisar matemáticamente signo, normalización, admisión de memoria, ambigüedad y comportamiento con audio no relacionado. Falta PR para la rama experimental y el modo permanece desactivado.
 - **[OPEN]** Ejecutar ese estimador con los WAV existentes del piloto controlado en el Dell, sin cambiar originales, y conservar métricas. Si no hay coincidencia acústica, resolver científicamente el emparejamiento.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
 - **[OPEN]** Generar dos MP4 y side-by-side locales y registrar QC manual de inicio, medio y final. **No declarar hecho aún.**
