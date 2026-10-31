@@ -88,7 +88,7 @@ def find_sources(cfg: Config, folder: Path) -> Discovery:
 ROLE = re.compile(r"(?<![a-z0-9])(mother|mom|children|child)(\d*)(?![a-z0-9])", re.I)
 
 
-def discover_field(cfg: Config, participant: str) -> dict:
+def discover_field(cfg: Config, participant: str, *, reviewed_sessions=()) -> dict:
     """Read-only field inventory. Infer only complete top-level partitions.
 
     No media decoding, hashing, readiness inference, or writes. Links/junctions
@@ -200,6 +200,17 @@ def discover_field(cfg: Config, participant: str) -> dict:
                     f['session'] = matches[0]
                     if 'REVIEW_SESSION_UNSPECIFIED' in f['review_codes']:
                         f['review_codes'].remove('REVIEW_SESSION_UNSPECIFIED')
+    # Explicit review is separate from structural session inference. Default
+    # behavior remains compatible with historical discovery/state consumers.
+    for session in roots:
+        videos = [f for f in result['files'] if f['session'] == session and f['kind'] == 'Video']
+        if (session in reviewed_sessions and session in cfg.field_sessions.get(participant, [])
+                and not result['issues'] and len(videos) == 2
+                and not any(f['session'] == session and f['kind'] in ('Other', 'TransferInProgress') for f in result['files'])
+                and {f['role'] for f in videos} == {'mom', 'child'}
+                and all(f['game'] is None and f['review_codes'] == ['REVIEW_GAME_UNSPECIFIED'] for f in videos)):
+            for f in videos:
+                f.update(game=1, game_origin='inferred_unique_pair', review_codes=[])
     # Only duplicates inside a known session are conflicts. Unassigned files
     # remain reviewable: their session relation is still unknown.
     names = Counter((f['session'], f['name'].casefold()) for f in result['files'] if f['kind'] == 'Video')
@@ -224,6 +235,10 @@ def discover_field(cfg: Config, participant: str) -> dict:
             games.append(dict(game=number, status='CandidatePair' if valid else 'NeedsReview',
                               review_code=None if valid else ('REVIEW_GAME_UNSPECIFIED' if number is None else 'REVIEW_CANDIDATES'),
                               sources=[f['relative_path'] for f in candidates]))
+            if reviewed_sessions:
+                games[-1]['game_origin'] = ('inferred_unique_pair' if all(
+                    f.get('game_origin') == 'inferred_unique_pair' for f in candidates) else
+                    'explicit' if number is not None else 'unspecified')
         result['sessions'].append(dict(session_id=session,
                                       session_origin='inferred_top_level' if inferred_roots else 'configured',
                                       games=games,

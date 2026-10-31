@@ -26,13 +26,13 @@ def contained(root, path):
     return path
 
 
-def plan(cfg, participant, approvals=None):
+def plan(cfg, participant, approvals=None, *, reviewed_sessions=()):
     """Hash sources; approval binds the exact inventory and scientific parameters.
 
     Approvals are explicit synthetic test contracts, not clinical authorization.
     Empty/unresolved discoveries produce a blocked placeholder job.
     """
-    report = discover_field(cfg, participant)
+    report = discover_field(cfg, participant, reviewed_sessions=reviewed_sessions)
     approvals = approvals or {}
     inventory = digest(report)
     files = {f['relative_path']: f for f in report['files']}
@@ -63,6 +63,8 @@ def plan(cfg, participant, approvals=None):
             identity = dict(participant=participant, session=session['session_id'], game=game['game'],
                             sources=sources, inventory=inventory,
                             sync=asdict(cfg.sync), encode=asdict(cfg.encode))
+            if reviewed_sessions:
+                identity['game_origin'] = game.get('game_origin', 'unspecified')
             fingerprint = digest(identity)
             approval = approvals.get(fingerprint, {})
             for gate in ('synthetic_only', 'session_reviewed', 'delivery_complete', 'integrity_verified'):
