@@ -37,7 +37,7 @@ The final pipeline must account for all five. At reference SHA, the newer safe p
 - Preserve all source bytes. Never mutate/readmit originals by treating a copy completion flag as scientific receipt.
 - Manifest `rg2019.delivery.v2`: separate independent session UUID and delivery identity; exact selected paths, size and hash; sidecar outside its own declared scope; explicitly documented exclusions. A UUIDv5 integrity identifier **is not a sender signature**.
 - `ReceptionVerified` does **not** imply `QCApproved`.
-- Do not accept unqualified maximum FFT correlation as a scientific offset. A global-search stage, if implemented, only proposes candidates; independent local agreement and QC are still needed.
+- Do not accept unqualified maximum FFT correlation as a scientific offset. The new global-search stage is **implemented in [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9)** but opt-in/unmerged. It proposes candidates only; disjoint-window agreement and scientific QC are required. Never reuse a synthetic CI pass as evidence of correct real-media offset.
 - Do not change or bypass thresholds merely to make a difficult sample pass.
 - Do not silently transform an AVI into MP4 by renaming it; use measured media information to decide on remux/transcoding.
 - No automatic scheduling or live NAS publication until explicit operational + scientific acceptance.
@@ -109,7 +109,7 @@ Do not insert guessed answers into source code; use explicit options, unknown st
 ## Failure-history quick index
 
 - September `sync_videos.sh`: inverted trimming camera for nonzero offsets.
-- September `sync_research_project.sh`: whole-audio FFT helps explore large lags, but unvalidated max and unsafe Bash/fallback must not be reinstated.
+- September `sync_research_project.sh`: whole-audio FFT covers large lags, but its unvalidated global maximum and unsafe Bash/fallback must not be reinstated. PR #9 implements corrected overlap-normalized lag candidates with bounded-memory admission, still without empirical field QC.
 - Historical copy JSON: successful local copy does not prove Synology Drive delivery; size coincidence cannot prove identity.
 - Original Python live script: can move INBOX to RAW, incompatible with newer deep session trees and safe non-destructive preproduction.
 - Original Windows long paths: required compact v2 result layout and explicit path preflight.
