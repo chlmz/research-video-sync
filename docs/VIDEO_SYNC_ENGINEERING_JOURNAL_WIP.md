@@ -58,24 +58,34 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **PR #4**: descubrimiento recursivo conservador de vídeos y clasificación por sesión/juego, sin abrir vídeo ni resolver ambigüedades automáticamente.
 - **PR #5**: puertas de autorización sintética y prueba con fuentes inventadas.
 - **PR #6**, head `21184f99628d8ba79cb5a8badc12cf6f8742c820`: publicación segura, scratch local, hashes, manifiesto, `COMMITTED`, intentos inmutables, idempotencia, control de rutas Windows y clasificación de errores.
-- [FIELD REPORT] En Dell Windows 11, suite de regresión 264 PASS, 0 FAIL, 2 SKIP reportados; prueba funcional SMB posterior 11 controles PASS bajo `gpis_runner` sin elevación. La observación de identidad SMB histórica se corroboró por registros NAS del 29/10; no debe presentarse como identidad independiente registrada para **la misma** sesión SMB del 30/10.
+- [FIELD REPORT] En Dell Windows 11, suite de regresión 264 PASS, 0 FAIL, 2 SKIP reportados; prueba funcional SMB posterior 11 controles PASS bajo una identidad de servicio sin privilegios administrativos sin elevación. La observación de identidad SMB histórica se corroboró por registros NAS del 29/10; no debe presentarse como identidad independiente registrada para **la misma** sesión SMB del 30/10.
 - **PR #7** `codex/gpis-delivery-v2`, head `a21279d6c7313d65eb1239e70f1bae3ae62b1420`: manifiesto de recepción `rg2019.delivery.v2`, UUID de sesión independiente, SHA-256, materiales auxiliares, exclusiones trazadas y juego 1 inferido solo para par único en sesión revisada. [CI] Windows: 296 PASS / 0 FAIL; Ubuntu: 295 PASS / 1 SKIP. Son pruebas sintéticas, no validación con vídeos reales.
 - Documentos base: `docs/PREPRODUCTION.md`, `docs/DELIVERY_V2.md`, `docs/STORAGE_PERMISSIONS.md`.
 - Todos los PR anteriores permanecían en borrador en la evaluación original. No asumir despliegue ni merge por la existencia de ramas.
 
-### 2026-10-30 — primer piloto real controlado (P3, juego 1)
+### 2026-10-30 — primer piloto real controlado (sin identificadores)
 
-**[FIELD REPORT]** Un par explícitamente rotulado madre1/niño1 fue copiado de manera autorizada al scratch del Dell. SHA-256 de original y copia, tamaño y mtime fueron verificados sin alterar los originales. La prueba se hizo con el código del commit `a21279d6...`, sin cambiar sus parámetros.
+**[FIELD REPORT]** Se copiaron dos grabaciones explícitamente seleccionadas a un scratch local autorizado; hashes, tamaños y fechas de origen fueron comprobados sin alterar los originales. Se ejecutó la versión `a21279d6...` sin cambiar parámetros. **No publicar aquí nombres de participantes, duraciones individuales, métricas acústicas específicas ni rutas de datos reales.** Esos detalles pertenecen a los registros privados de QC.
 
-**Metadatos declarados por FFprobe/FFplay:** AVI, vídeo H.264 Main (FourCC H264), 1280×720, 30 FPS; audio PCM `pcm_s16le` mono a 16 kHz. Duraciones de contenedor reportadas: madre **378.867 s** y niño **220.800 s**. Diferencia de duraciones: **158.067 s**; **NO** confundirla con el offset real entre inicios de grabación. Cabeceras/timestamps deben verificarse.
+**Metadatos técnicos de interoperabilidad:** el contenedor de campo es AVI, con vídeo H.264 y audio PCM mono. Las duraciones declaradas de las pistas pueden diferir y contener anomalías de cabecera; **la diferencia entre duraciones no es el offset entre cámaras**.
 
-**Resultado del estimador de audio:** extracción completa de audio posible, pero **0 de 7 ventanas válidas**, NCC mediana **0.0207**, confianza **0.0**; no se aceptó offset, no se hizo etapa fina ni se generaron MP4 sincronizados.
+**Resultado del estimador de audio:** se pudo extraer audio, pero ninguna de las ventanas analizadas alcanzó consenso y no se aceptó desfase. No se pasó a etapa fina ni se generaron MP4 sincronizados. Los umbrales, las ventanas y la metodología son reproducibles desde el código, pero los valores medidos sobre fuentes reales permanecen privados.
 
-**Decodificación visual:** se reportaron errores H.264 («No start code is found» / «Error splitting the input into NAL units»). FFplay logró abrir y avanzar por el AVI; mostró advertencia `Invalid sample_size -1 at stream 1 setting it to 0`. [MANUAL] El responsable inspeccionó visualmente ambos vídeos y los consideró bien grabados y reproducibles. Esta apreciación **no sustituye** escaneo integral de errores ni validación de timestamps.
+**Decodificación visual:** se informaron advertencias/errores H.264 y metadatos AVI imperfectos; el reproductor pudo abrir ambas fuentes. [MANUAL] El investigador informó que las grabaciones se reproducían normalmente. Esto **no sustituye** un escaneo integral de frames o timestamps.
 
-**Decisión:** NO cambiar únicamente `.avi` por `.mp4`, NO recodificar originales por rutina, NO bajar umbrales de NCC, NO inventar un offset. Conservar las copias y audios de diagnóstico locales, sin subirlos a GitHub ni a servicios externos. QC continúa `NotApproved`.
+**Decisión:** NO cambiar solo la extensión AVI→MP4, NO recodificar originales por rutina, NO bajar umbrales ni inventar un offset. Conservar diagnósticos exclusivamente en infraestructura autorizada. QC permanece **NO APROBADO**.
 
-**[HYPOTHESIS]** La búsqueda limitada a ±120 s puede omitir un offset real mayor; el original de septiembre buscaba globalmente. **La diferencia de duración de ~158 s no demuestra ese offset.** Alternativamente, puede no haber audio compartido suficiente o puede estar mal emparejada la sesión. Se requiere evidencia, no inferencia.
+**[HYPOTHESIS]** La búsqueda limitada a ±120 s puede excluir el desfase correcto. Otra posibilidad es audio poco comparable o emparejamiento de sesión incorrecto. Ninguna se ha demostrado con este par.
+
+### 2026-10-30 23:41 (hora local) — rama nueva de búsqueda FFT global
+
+- **[CODE]** Apareció `codex/gpis-global-fft`, commit `5cbd7ddad928d36b774476f0a34e28317fff5bc4` (2026-10-31 02:41 UTC). Referencia: https://github.com/chlmz/research-video-sync/commit/5cbd7ddad928d36b774476f0a34e28317fff5bc4 . No se identifica todavía un PR abierto para esta rama; **no está integrada en `main`**.
+- **[CODE]** `rg2019/syncest.py` conserva el estimador por ventanas como modo por defecto. La modalidad global es **opt-in** con `sync.global_fft_enabled=false`, máximo **3 candidatos** por defecto y presupuesto de admisión de **512 MiB**. La FFT propone picos globales con **correlación de Pearson normalizada en cada solapamiento**, usando la gama lineal correcta de desfases (corrige además el error de índice circular del Bash histórico con duraciones asimétricas).
+- **[CODE]** Cada candidato debe superar validación local con ventanas **disjuntas**, umbrales de NCC, relación de picos y consenso; si no hay exactamente un candidato validado, no se aprueba desfase. Los offsets mantienen la convención madre positiva; la corrección de inicio de pistas de audio se suma una sola vez.
+- **[CODE]** Se estima el costo de asignación **antes de ejecutar** la FFT, hasta un presupuesto configurado de **4096 MiB**; si excede presupuesto se rechaza la operación. Es una predicción de memoria, **no un límite de RAM impuesto por el sistema operativo**, y la opción estándar de 512 MiB puede no admitir grabaciones extensas.
+- **[CODE]** Se añadieron `docs/GLOBAL_FFT.md`, `tests/test_global_fft.py` y configuración de CI para la nueva rama. Los casos sintéticos cubren desfases largos y de ambos signos, duraciones asimétricas, silencio/no-relación, periodicidad, límites de memoria, fuentes mapeadas, timestamps y una prueba a 8 kHz. **La existencia de tests no equivale a que hayan pasado ni a QC real.**
+- **[CI / OPEN]** Se disparó el workflow `Python tests` para ese commit el 2026-10-31 02:42:49 UTC; al consultar, seguía **en ejecución**, sin conclusión publicada. Ver: https://github.com/chlmz/research-video-sync/actions/runs/41161224041 .
+- **[OPEN]** Revisar resultado de CI, corregir defectos documentados si surgieran, establecer PR de revisión y ejecutar una validación autorizada sobre los audios de diagnóstico. El modo sigue apagado, no se generaron archivos reales por este cambio.
 
 ## 3. Matemática esencial de sincronización
 
@@ -119,9 +129,9 @@ En `rg2019/syncest.py` con parámetros por defecto de `rg2019/config.py`:
 - NCC mínimo de ventana **0.05**, proporción entre picos ≥ **1.5**; cluster de offsets gruesos congruentes.
 - Etapa fina: hasta **5 ventanas independientes** dentro del solapamiento, búsqueda de **±2 s** alrededor del candidato, y acuerdo de al menos **3** ventanas, fracción ≥ **0.6**, con tolerancia fina **0.25 s**.
 - Estima desfase constante. `offset_spread_seconds` permite observar dispersión, **no corrige deriva de relojes**.
-- En la prueba real P3 no avanzó a la segunda etapa.
+- En la prueba real del piloto controlado no avanzó a la segunda etapa.
 
-**[OPEN — implementación por Codex]** Recuperar la capacidad de búsqueda global FFT como **generador de candidatos** dentro de Python, seguida de verificación multicapa por ventanas, memoria acotada y rechazo de coincidencias espurias. No declarar esta integración implementada hasta disponer de SHA/PR/CI y réplica en Dell.
+**[CODE / OPEN — implementación nueva sin aceptación]** La rama experimental `codex/gpis-global-fft` contiene una implementación opt-in de propuesta global FFT + validación por ventanas (SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`). En el momento de esta revisión no hay PR ni CI concluido y no existe réplica sobre datos reales en el servidor. No tratar desarrollo experimental como aprobación.
 
 ## 4. Contenedor y codificación: AVI no es un error por sí mismo
 
@@ -136,13 +146,13 @@ Tampoco la reproducción visual normal demuestra integridad de todos los frames 
 4. Si hiciera falta remux o transcodificación, hacerlo **solo en scratch** y dejar trazabilidad del método, no cambiar los originales ni resolver el problema alterando la extensión.
 5. Revalidar audio-vídeo y QC de los resultados.
 
-El módulo `rg2019/media.py` tiene `probe`, `extract_audio`, `encode` y `side_by_side`. La exportación normalmente vuelve a codificar la cámara que requiere recorte; puede copiar vídeo/audio sin recodificar solo cuando los codecs son compatibles con MP4. En el par actual el audio es PCM, no AAC/MP3, por lo que `can_copy` no permite copia completa directa.
+El módulo `rg2019/media.py` tiene `probe`, `extract_audio`, `encode` y `side_by_side`. La exportación normalmente vuelve a codificar la cámara que requiere recorte; puede copiar vídeo/audio sin recodificar solo cuando los codecs son compatibles con MP4. En el par actual el audio es PCM, no AAC/Mpiloto controlado, por lo que `can_copy` no permite copia completa directa.
 
 ## 5. Protocolo de recepción y sesión (independiente de sincronización)
 
 Los datos de campo se organizan en `00_INBOX`, `01_RAW`, `02_SYNCED`, `03_WORKSPACE`, `04_FACEREADER_OUTPUT`, `05_ANALYTIC_DATA` y `99_LOGS_QC`; los pilotos históricos se conservan aparte. No escribir dentro de las fuentes originales.
 
-Una auditoría de solo lectura encontró **3 participantes**, **8 AVI**, **20 INSV**, **20 LRV** y **6 JSON históricos**. Los seis JSON contienen 13 referencias AVI para los ocho AVI observados, con rutas/nombres renombrados y cinco referencias sin correspondencia por tamaño. Ningún indicador `copy_successful` prueba la llegada completa al NAS.
+Una auditoría de solo lectura encontró un archivo histórico heterogéneo de AVI, INSV, LRV y registros JSON de copia. Varias referencias históricas no correspondían con los archivos presentes y se identificaron cambios de nombre; los recuentos y rutas exactas permanecen en el inventario privado. Ningún indicador `copy_successful` prueba la llegada completa al NAS.
 
 Reglas aprobadas para `delivery.v2`:
 
@@ -162,7 +172,7 @@ FURG — captura/copia local → Synology Drive → NAS 00_INBOX
              ↘ manifiesto cierre (futuro)
 NAS recibe y verifica entrega → inventario/sesión/juego revisados
                 ↓ SOLO cuando esté autorizado
-GPIS-SERVER (gpis_runner) → copia verificada a scratch local
+Servidor de análisis (identidad de servicio restringida) → copia verificada a scratch local
                 ↓
 FFmpeg extrae audio → estimador robusto → revisión de confianza
                 ↓
@@ -175,7 +185,7 @@ Manifiesto/COMMITTED + logs, procedencia y opción de relectura
 
 Estado efectivo al 30/10: el ejecutor más protegido (`rg2019.preproduction`) acepta **solo datos sintéticos**; tiene límites de 120 s por vídeo y máximo de entradas por defecto de 256 MiB, no ajustados a grabaciones de campo. El contrato `delivery.v2` no los elimina. Publicación real y procesamiento automático permanecen **bloqueados**.
 
-`01_RAW` debe permanecer inmutable. No inferir que `CAMERAS_PC` tiene permisos seguros: la herencia de permisos de escritura detectada en RAW y pilotos requiere corrección aprobada. Ningún experimento de sincronización debe modificar ACL, mover INBOX ni abrir un modo vivo por atajo.
+`01_RAW` debe permanecer inmutable. No inferir que la identidad de entrega del equipo de campo tiene permisos seguros: la herencia de permisos de escritura detectada en RAW y pilotos requiere corrección aprobada. Ningún experimento de sincronización debe modificar ACL, mover INBOX ni abrir un modo vivo por atajo.
 
 La publicación robusta de pruebas usa intents, verificaciones SHA-256, intentos inmutables y `COMMITTED`, y debe distinguir éxito de transferencia de aprobación científica. Respetar la separación de permisos mínimos en NAS.
 
@@ -187,12 +197,12 @@ La publicación robusta de pruebas usa intents, verificaciones SHA-256, intentos
 | Descubrimiento recursivo y recepción v2 | [CODE/CI] PR #4 y #7 |
 | Pipeline sintético en Windows y Linux | [CI] PR #7: 296 PASS Windows, 295 PASS + 1 SKIP Ubuntu |
 | Primitivas SMB bajo cuenta de servicio | [FIELD REPORT] 11 pruebas funcionales PASS; evidencia NAS histórica adicional |
-| Vídeos P3 archivados llegaron al Dell sin cambio SHA | [FIELD REPORT] PASS |
-| Vídeos P3 son visualmente reproducibles | [MANUAL] Sí, reportado por investigador |
-| Offset correcto del piloto P3 juego 1 | **NO**: 0/7 ventanas; no estimado |
-| Tres MP4 P3 generados y científicamente correctos | **NO** |
+| Copias autorizadas de vídeo real conservaron integridad SHA-256 | [FIELD REPORT] PASS |
+| Vídeos del piloto controlado son visualmente reproducibles | [MANUAL] Sí, reportado por investigador |
+| Offset correcto del piloto controlado juego 1 | **NO**: 0/7 ventanas; no estimado |
+| Tres MP4 del piloto controlado generados y científicamente correctos | **NO** |
 | Ausencia de errores de decodificación en todos los frames | **NO demostrado** |
-| Uso de búsqueda global FFT segura en rama actual | **PENDIENTE** |
+| Búsqueda global FFT en rama experimental | [CODE] Desarrollada, **desactivada por defecto**, no verificada en datos reales; CI pendiente |
 | Ejecución automática en vídeos reales y publicación NAS | **BLOQUEADA** |
 
 ## 8. Protocolo futuro de validación científica (no rellenar resultados a posteriori)
@@ -239,8 +249,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 
 ## 11. Pendientes y próximos hitos
 
-- **[OPEN]** Obtener del Codex el SHA/PR de la **búsqueda FFT global como candidato + validación por ventanas** y comprobar matemáticamente signo, memoria y comportamiento con audio no relacionado.
-- **[OPEN]** Ejecutar ese estimador con los WAV existentes del piloto P3 en el Dell, sin cambiar originales, y conservar métricas. Si no hay coincidencia acústica, resolver científicamente el emparejamiento.
+- **[OPEN]** Verificar CI del commit `5cbd7d...` y revisar matemáticamente signo, normalización, admisión de memoria, ambigüedad y comportamiento con audio no relacionado; falta PR para la rama experimental y el modo permanece desactivado.
+- **[OPEN]** Ejecutar ese estimador con los WAV existentes del piloto controlado en el Dell, sin cambiar originales, y conservar métricas. Si no hay coincidencia acústica, resolver científicamente el emparejamiento.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
 - **[OPEN]** Generar dos MP4 y side-by-side locales y registrar QC manual de inicio, medio y final. **No declarar hecho aún.**
 - **[OPEN]** Establecer tolerancia de desfase/deriva, tasas de fallos y criterios de aprobación.
@@ -268,4 +278,6 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 
 ### Registro de revisiones
 
-- **v0.1 · 2026-10-30** — Bitácora inicial creada desde análisis de commits, scripts de septiembre, auditoría de legado, PR #4–#7, informes de validación de Windows/SMB y piloto P3. **No implica finalización ni sincronización correcta de P3.**
+- **v0.2 · 2026-10-30** — Registro de nueva rama experimental global FFT y saneamiento de datos sensibles de documentación pública.
+
+- **v0.1 · 2026-10-30** — Bitácora inicial creada desde análisis de commits, scripts de septiembre, auditoría de legado, PR #4–#7, informes de validación de Windows/SMB y piloto piloto controlado. **No implica finalización ni sincronización correcta de piloto controlado.**
