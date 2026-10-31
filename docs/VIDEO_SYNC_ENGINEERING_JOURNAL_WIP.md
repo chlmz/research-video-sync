@@ -89,6 +89,14 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 
 **[CODE / EJEMPLO HIPOTÉTICO]** La preadmisión de la FFT usa `192*next_fast_len(M+N-1)+64*(M+N)` bytes. Para **600 segundos combinados inventados** a 8 kHz el costo estimado es ~**1.172 MiB** de memoria adicional, fuera de audio original y overhead del runtime. Por tanto 512 y 1024 MiB no alcanzan; no cambiar presupuestos automáticamente. En el experimento Dell se deben medir la longitud real de PCM y RAM libre; no publicar metadatos reales.
 
+### 2026-10-31 — verificación de recursos para el primer FFT global real
+
+- **[FIELD REPORT]** Se verificaron el checkout del commit exacto del PR #9, los hashes de las copias locales AVI y los audios PCM existentes. Se comprobó de manera independiente la frecuencia/cantidad de muestras y se calculó la memoria de la FFT usando la fórmula del nuevo código.
+- **[FIELD REPORT]** La RAM física disponible en ese momento era insuficiente para admitir con seguridad el espacio adicional de FFT más el margen operativo. El control de preflight se detuvo **antes de ejecutar la FFT**.
+- **[SCIENTIFIC STATUS]** No se estimó ningún nuevo offset, no se evaluaron candidatos ni ventanas del nuevo algoritmo, no se generaron nuevos MP4, y el QC sigue **NotApproved**. Este bloqueo **no es evidencia de un fallo de sincronización o decodificación**.
+- **[DECISION]** No reducir artificialmente el presupuesto de memoria ni usar paginación como prueba de suficiencia; observar primero qué aplicaciones prescindibles consumen memoria sin detener servicios. Si no hay margen, evaluar alternativa de FFT por bloques/streaming de memoria acotada para que el software sea reutilizable en grabaciones largas.
+- **[PRIVATE]** La capacidad disponible observada, conteo de muestras, tiempos de grabación y rutas de informes reales deben conservarse en registro QC privado; **no copiarlos al repositorio público**.
+
 ## 3. Matemática esencial de sincronización
 
 ### 3.1 Convención del desfase (NO cambiar sin tests)
@@ -133,7 +141,7 @@ En `rg2019/syncest.py` con parámetros por defecto de `rg2019/config.py`:
 - Estima desfase constante. `offset_spread_seconds` permite observar dispersión, **no corrige deriva de relojes**.
 - En la prueba real del piloto controlado no avanzó a la segunda etapa.
 
-**[CODE / OPEN — implementación nueva sin aceptación]** La rama experimental `codex/gpis-global-fft` contiene una implementación opt-in de propuesta global FFT + validación por ventanas (SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`). En el momento de esta revisión no existe PR ni réplica sobre datos reales en el servidor; **CI sintética en Windows/Linux aprobada**. La aceptación científica sigue pendiente. No tratar desarrollo experimental como aprobación.
+**[CODE / OPEN — implementación nueva sin aceptación]** La rama experimental `codex/gpis-global-fft` contiene una implementación opt-in de propuesta global FFT + validación por ventanas (SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`). En el momento de esta revisión ya existe el PR #9 en borrador, y aún no existe una estimación FFT global aceptada sobre las fuentes reales; **CI sintética en Windows/Linux aprobada**. La aceptación científica sigue pendiente. No tratar desarrollo experimental como aprobación.
 
 ## 4. Contenedor y codificación: AVI no es un error por sí mismo
 
@@ -148,7 +156,7 @@ Tampoco la reproducción visual normal demuestra integridad de todos los frames 
 4. Si hiciera falta remux o transcodificación, hacerlo **solo en scratch** y dejar trazabilidad del método, no cambiar los originales ni resolver el problema alterando la extensión.
 5. Revalidar audio-vídeo y QC de los resultados.
 
-El módulo `rg2019/media.py` tiene `probe`, `extract_audio`, `encode` y `side_by_side`. La exportación normalmente vuelve a codificar la cámara que requiere recorte; puede copiar vídeo/audio sin recodificar solo cuando los codecs son compatibles con MP4. En el par actual el audio es PCM, no AAC/Mpiloto controlado, por lo que `can_copy` no permite copia completa directa.
+El módulo `rg2019/media.py` tiene `probe`, `extract_audio`, `encode` y `side_by_side`. La exportación normalmente vuelve a codificar la cámara que requiere recorte; puede copiar vídeo/audio sin recodificar solo cuando los codecs son compatibles con MP4. En el par actual el audio es PCM, no AAC/MP3, por lo que `can_copy` no permite copia completa directa.
 
 ## 5. Protocolo de recepción y sesión (independiente de sincronización)
 
@@ -252,7 +260,7 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ## 11. Pendientes y próximos hitos
 
 - **[CI / OPEN]** PR #9 en Draft, SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`: 309 PASS Windows; 308 PASS + 1 SKIP Ubuntu. La revisión inicial del código no detectó regresión matemática reproducible; falta medir recursos reales y validar audio local sin activar el pipeline. Modo global sigue desactivado por defecto.
-- **[OPEN]** Ejecutar ese estimador con los WAV existentes del piloto controlado en el Dell, sin cambiar originales, y conservar métricas. Si no hay coincidencia acústica, resolver científicamente el emparejamiento.
+- **[OPEN]** Repetir únicamente la **admisión de recursos**, no toda la auditoría: comprobar procesos de usuario que consuman RAM; cerrar solo aplicaciones voluntariamente prescindibles, sin tocar servicios. No lanzar la FFT hasta que se observe un margen operativo revisado. Si no hay margen suficiente, diseñar una búsqueda global FFT de memoria acotada para grabaciones largas y demostrarla con tests sintéticos antes de la prueba de audio real.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
 - **[OPEN]** Generar dos MP4 y side-by-side locales y registrar QC manual de inicio, medio y final. **No declarar hecho aún.**
 - **[OPEN]** Establecer tolerancia de desfase/deriva, tasas de fallos y criterios de aprobación.
@@ -279,6 +287,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v0.4 · 2026-10-31** — Verificación autorizada de RAM/PCM del FFT global real: BLOCKED antes de cualquier cálculo; sin offset, sin MP4 nuevos. Se documenta decisión de priorizar memoria segura o diseño acotado, conservando cifras operativas reales en privado.
 
 - **v0.3 · 2026-10-30** — PR #9 Draft creado; revisión CI exacta, memoria de ejemplo sintético y límites científicos documentados. Sin publicación de parámetros o duraciones de grabaciones reales.
 
