@@ -142,6 +142,12 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[LIMIT]** No se han recibido aquí métricas numéricas independientes de desfase residual ni una revisión formal detallada de cada punto del vídeo. La confirmación visual del responsable es una evidencia positiva importante, pero la aprobación formal de QC, promoción a resultados oficiales y publicación NAS deben quedar como decisiones separadas.
 - **[NEXT]** Conservar esta implementación y su SHA, sin introducir nuevamente palmadas ni pruebas NCC que bloquearon el resultado. Preparar copia verificada y no destructiva a la estructura correcta del NAS solo con autorización operativa y criterio de salida, sin tocar fuentes RAW.
 
+### 2026-10-31 — README FINAL de la lógica pública de sincronización
+
+- **[PUBLIC PRODUCT]** Se creó [`README_VIDEO_SYNC_ALGORITHM_FINAL.md`](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/README_VIDEO_SYNC_ALGORITHM_FINAL.md) en la rama de desarrollo del adaptador histórico, separando deliberadamente **algoritmo final reproducible** de **integración privada GPIS/NAS todavía no desarrollada**. Incluye audio íntegro 16 kHz, RMS, FFT global y corrección del índice lineal, signo, recortes, tres MP4, sesiones/juegos, 12 pruebas focalizadas y resultado visual positivo de un piloto según el investigador.
+- **[BOUNDARY]** El documento final público **no** publica datos/identificadores de participantes ni configura servicios. La cadena `00_INBOX → 01_RAW → scratch local/FFT → 02_SYNCED` sigue siendo un objetivo operacional a implementar, verificar y documentar en un README **privado**. El script funcional actual únicamente guarda derivados locales.
+- **[VERSION]** El código con evidencia sintética y de piloto sigue fijado a SHA `0a143d33862a274e3e9c8ed25495121218a9acac`; commits posteriores solo documentales no implican cambios de algoritmos ni certificación de uso desatendido.
+
 ## 3. Matemática esencial de sincronización
 
 ### 3.1 Convención del desfase (NO cambiar sin tests)
@@ -332,6 +338,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v1.1 · 2026-10-31** — README final de la lógica FFT publicado en el PR #10. Se confirma que la automatización INBOX/RAW/SYNCED es un proyecto privado y pendiente, sin afirmar su despliegue.
 
 - **v1.0 · 2026-10-31** — El investigador confirmó expresamente «sincro perfeita» tras inspección visual de los vídeos del adaptador histórico. PASS visual reportado, QC formal y publicación NAS aún independientes.
 
