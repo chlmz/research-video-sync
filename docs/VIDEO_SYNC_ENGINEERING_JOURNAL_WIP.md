@@ -114,6 +114,12 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[SCIENTIFIC DISTINCTION]** Recuperar el máximo FFT histórico no garantiza que sea un offset cierto en audios poco comparables. La decisión es **generar candidatos audiovisuales como antes para revisión posterior**, sin afirmar QC aprobado, sin usar el pico NCC previamente rechazado como offset y sin degradar el estado de evidencia/seguridad.
 - **[PRODUCT LESSON]** El algoritmo y los bloqueos de recepción/infraestructura son componentes distintos: no alterar una estrategia funcional de estimación al adaptar el árbol de carpetas; aislar los nuevos controles operativos para que no invaliden un flujo que producía resultados revisables.
 
+### 2026-10-31 — SHA incorrecto en el traspaso a Work: ejecución correctamente bloqueada
+
+- **[HANDOFF ERROR]** Se transmitió por error un identificador de commit no existente para el adaptador de septiembre. El agente de ejecución comprobó que no existía en GitHub y detuvo el intento **sin procesar fuentes ni crear MP4**.
+- **[VERIFIED FIX]** Se consultaron directamente el PR #10 y el commit de GitHub: SHA correcto `0a143d33862a274e3e9c8ed25495121218a9acac` en `codex/gpis-september-field-adapter`, PR #10 en borrador. La referencia fue corregida y el responsable autorizó continuar exclusivamente con el ensayo local previsto; el QC sigue `NotApproved` hasta tener resultados reales.
+- **[LESSON]** Los traspasos a Work/Codex deben copiar el SHA exacto y verificarlo contra la rama remota/PR antes de lanzar procesamiento. Nunca reconstruir un SHA manualmente ni dar por correcto un prefijo parecido. Los errores de referencia no justifican cambiar la lógica del pipeline.
+
 ## 3. Matemática esencial de sincronización
 
 ### 3.1 Convención del desfase (NO cambiar sin tests)
@@ -304,6 +310,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v0.7 · 2026-10-31** — Se registró transcripción equivocada del SHA al delegar prueba local a Work; el preflight bloqueó correctamente. Se verificó el SHA actual de PR #10 y se autorizó el ensayo sin producción ni cambios en los originales.
 
 - **v0.6 · 2026-10-31** — Decisión explícita: se descarta la palmada como requisito, se abandona el ajuste reiterado de umbrales; PR #10 con la ruta FFT NumPy de septiembre adaptada a sesiones/juegos profundos, 12 tests sintéticos PASS, tres MP4 locales pendientes de evaluación científica.
 
