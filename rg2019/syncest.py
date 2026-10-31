@@ -1,4 +1,8 @@
-"""Audio synchronisation estimator (memory-safe, windowed, two-stage).
+"""Audio synchronisation estimator (windowed default; optional bounded global FFT).
+
+The optional global mode proposes full-audio normalized FFT peaks, then requires
+disjoint-window validation. See docs/GLOBAL_FFT.md. The description below covers
+the default windowed mode; its max_lag does not constrain global proposals.
 
 SIGN CONVENTION (single source of truth for the whole project)
 --------------------------------------------------------------
@@ -45,6 +49,7 @@ from dataclasses import dataclass, field, asdict
 
 import numpy as np
 from scipy.signal import fftconvolve
+from scipy.fft import next_fast_len
 
 from .config import SyncParams
 
@@ -82,6 +87,7 @@ class SyncEstimate:
     median_peak_ratio: float = 0.0
     offset_spread_seconds: float = 0.0    # max-min of agreeing window offsets (drift indicator)
     windows: list[WindowResult] = field(default_factory=list)
+    global_candidates: list[dict] = field(default_factory=list)
 
     def to_dict(self, with_windows: bool = True) -> dict:
         d = asdict(self)
@@ -176,7 +182,7 @@ def _largest_cluster(vals: list[float], tol: float) -> list[int]:
     return best
 
 
-def estimate_offset(mom: np.ndarray, child: np.ndarray, prm: SyncParams,
+def _estimate_windowed(mom: np.ndarray, child: np.ndarray, prm: SyncParams,
                     mom_audio_start: float = 0.0, child_audio_start: float = 0.0) -> SyncEstimate:
     """Estimate ``offset_seconds`` (convention in the module docstring) between two mono int16
     signals sampled at ``prm.sample_rate``.  ``*_audio_start`` are the audio streams' start
@@ -257,3 +263,128 @@ def estimate_offset(mom: np.ndarray, child: np.ndarray, prm: SyncParams,
         f"{len(agree)}/{len(fine)} windows agree, median NCC {est.median_ncc:.3f}, "
         f"spread {est.offset_spread_seconds * 1000:.0f} ms")
     return est
+
+
+def _global_candidates(mom, child, prm):
+    """Whole-signal FFT/Pearson proposals; arrays are freed before validation."""
+    if (type(prm.global_fft_memory_mb) is not int or not 1 <= prm.global_fft_memory_mb <= 4096
+            or type(prm.global_fft_candidates) is not int or not 2 <= prm.global_fft_candidates <= 8
+            or type(prm.sample_rate) is not int or type(prm.fine_windows) is not int
+            or type(prm.min_agreeing_windows) is not int
+            or not 0 < prm.sample_rate <= 48000 or not 0 < prm.window_seconds <= 600
+            or not 0 < prm.fine_search_seconds <= 60 or not 3 <= prm.fine_windows <= 32
+            or not 3 <= prm.min_agreeing_windows <= prm.fine_windows
+            or not 0 < prm.min_ncc <= 1 or not 1 < prm.min_peak_ratio <= 99
+            or not 0 < prm.fine_tolerance_seconds <= prm.fine_search_seconds
+            or not np.isfinite(prm.min_overlap_seconds) or prm.min_overlap_seconds <= 0
+            or not np.isfinite(prm.silence_rms) or prm.silence_rms <= 0
+            or not 0 < prm.min_agree_fraction <= 1):
+        raise ValueError('invalid global FFT operational/confidence limits')
+    m, n = mom.size, child.size
+    if mom.ndim != 1 or child.ndim != 1 or min(m, n) < 5 * prm.sample_rate:
+        raise ValueError('audio too short or not mono')
+    length = m + n - 1
+    nfft = next_fast_len(length, real=True)
+    # Conservative admission estimate for FFT workspaces, float64 operands,
+    # prefix sums and lag-local vectors. Does not include caller-owned inputs.
+    budget = prm.global_fft_memory_mb * 1024**2
+    required = 192 * nfft + 64 * (m + n)
+    validation_bytes = 256 * int((prm.window_seconds + 2 * prm.fine_search_seconds) * prm.sample_rate)
+    if max(required, validation_bytes) > budget:
+        raise ValueError(f'global FFT memory budget exceeded (estimated {max(required, validation_bytes)} bytes)')
+    x, y = np.asarray(mom, dtype=np.float64) / 32768., np.asarray(child, dtype=np.float64) / 32768.
+    if not np.isfinite(x).all() or not np.isfinite(y).all():
+        raise ValueError('nonfinite audio')
+    x -= x.mean()
+    y -= y.mean()
+    corr = fftconvolve(x, y[::-1], mode='full')
+    lag = np.arange(-(n - 1), m)
+    a, b = np.maximum(0, lag), np.minimum(m, n + lag)
+    count = b - a
+    def moments(v, lo, hi):
+        sums = np.concatenate(([0.], np.cumsum(v)))
+        squares = np.concatenate(([0.], np.cumsum(v * v)))
+        return sums[hi] - sums[lo], squares[hi] - squares[lo]
+    sx, qx = moments(x, a, b)
+    sy, qy = moments(y, a - lag, b - lag)
+    vx, vy = np.maximum(0, qx - sx*sx/count), np.maximum(0, qy - sy*sy/count)
+    min_samples = int(np.ceil(max(prm.min_overlap_seconds,
+        prm.min_agreeing_windows * prm.window_seconds + 2*prm.fine_search_seconds) * prm.sample_rate))
+    usable = ((count >= min_samples) & (vx/count >= prm.silence_rms**2)
+              & (vy/count >= prm.silence_rms**2))
+    scores = np.full(length, -np.inf)
+    scores[usable] = np.clip((corr[usable] - sx[usable]*sy[usable]/count[usable]) /
+                             np.sqrt(vx[usable]*vy[usable]), -1, 1)
+    proposals = []
+    exclude = max(1, int(2 * prm.fine_search_seconds * prm.sample_rate))
+    for _ in range(prm.global_fft_candidates):
+        k = int(np.argmax(scores))
+        if not np.isfinite(scores[k]) or scores[k] < prm.min_ncc:
+            break
+        proposals.append(dict(offset_seconds=float(lag[k]/prm.sample_rate), ncc=float(scores[k]),
+                              overlap_seconds=float(count[k]/prm.sample_rate), estimated_bytes=required))
+        scores[max(0,k-exclude):min(length,k+exclude+1)] = -np.inf
+    return proposals
+
+
+def _validate_global(mom, child, prm, candidate, shift):
+    rate, offset = prm.sample_rate, candidate['offset_seconds']
+    lo = max(0., offset) + prm.fine_search_seconds
+    hi = min(mom.size/rate, child.size/rate + offset) - prm.fine_search_seconds
+    w = int(prm.window_seconds * rate)
+    a, b = int(np.ceil(lo*rate)), int(np.floor(hi*rate)) - w
+    est = SyncEstimate(False, None, 0., 'global candidate: insufficient independent windows',
+                       coarse_offset_seconds=offset + shift)
+    if w < 1 or b < a: return est
+    # Require genuinely disjoint windows; do not count half-overlapping windows.
+    positions = []
+    for p in np.linspace(a, b, prm.fine_windows).astype(int):
+        if not positions or p - positions[-1] >= w: positions.append(int(p))
+    windows = [_window(mom, child, rate, p, w, offset-prm.fine_search_seconds,
+                       offset+prm.fine_search_seconds, 2, prm) for p in positions]
+    est.windows, est.n_windows = windows, len(windows)
+    valid = [r for r in windows if r.valid]
+    cluster = _largest_cluster([r.offset_seconds for r in valid], prm.fine_tolerance_seconds)
+    agree = [valid[i] for i in cluster]
+    if not agree: return est
+    median = float(np.median([r.offset_seconds for r in agree]))
+    agree = [r for r in agree if abs(r.offset_seconds-median) <= prm.fine_tolerance_seconds]
+    est.n_agree = len(agree)
+    est.median_ncc = float(np.median([r.ncc for r in agree]))
+    est.median_peak_ratio = float(np.median([r.peak_ratio for r in agree]))
+    est.offset_spread_seconds = float(np.ptp([r.offset_seconds for r in agree]))
+    est.confidence = est.median_ncc * len(agree)/len(windows)
+    est.ok = (len(agree) >= prm.min_agreeing_windows and
+              len(agree)/len(windows) >= prm.min_agree_fraction and est.median_ncc >= prm.min_ncc)
+    est.reason = f'global candidate: {len(agree)}/{len(windows)} independent windows agree'
+    if est.ok: est.offset_seconds = float(np.median([r.offset_seconds for r in agree])) + shift
+    return est
+
+
+def estimate_offset(mom, child, prm, mom_audio_start=0., child_audio_start=0.):
+    """Default legacy windowed estimator, or explicitly enabled global proposals.
+
+    Global budget/ambiguity failures never fall back to an unchecked peak.
+    """
+    if not prm.global_fft_enabled:
+        return _estimate_windowed(mom, child, prm, mom_audio_start, child_audio_start)
+    if type(prm.global_fft_enabled) is not bool or not np.isfinite([mom_audio_start, child_audio_start]).all():
+        return SyncEstimate(False, None, 0., 'invalid global mode or audio timestamps')
+    try:
+        candidates = _global_candidates(mom, child, prm)
+    except (ValueError, TypeError, OverflowError, MemoryError) as exc:
+        return SyncEstimate(False, None, 0., 'global FFT blocked: ' + str(exc))
+    try:
+        results = [_validate_global(mom, child, prm, c, mom_audio_start-child_audio_start) for c in candidates]
+    except MemoryError:
+        return SyncEstimate(False, None, 0., 'global FFT validation memory allocation failed',
+                            global_candidates=candidates)
+    accepted = [r for r in results if r.ok]
+    evidence = [dict(c, validated=r.ok, n_agree=r.n_agree, n_windows=r.n_windows,
+                     reason=r.reason) for c, r in zip(candidates, results)]
+    if len(accepted) != 1:
+        return SyncEstimate(False, None, 0., 'global FFT: ambiguous candidates' if accepted else
+                            'global FFT: no independently validated candidate', global_candidates=evidence,
+                            windows=[w for r in results for w in r.windows])
+    accepted[0].global_candidates = evidence
+    return accepted[0]

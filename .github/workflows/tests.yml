@@ -3,7 +3,7 @@ name: Python tests
 on:
   # Branch push covers the stacked preproduction PR without duplicate PR runs.
   push:
-    branches: [codex/gpis-preproduction-integration, codex/gpis-delivery-v2]
+    branches: [codex/gpis-preproduction-integration, codex/gpis-delivery-v2, codex/gpis-global-fft]
   pull_request:
     branches: [main, feature/gpis-recursive-discovery]
   workflow_dispatch:

@@ -29,6 +29,9 @@ class SyncParams:
     min_agree_fraction: float = 0.6
     min_overlap_seconds: float = 10.0
     silence_rms: float = 1e-4          # windows quieter than this (full scale=1) are skipped
+    global_fft_enabled: bool = False  # opt-in; no automatic production/pilot activation
+    global_fft_memory_mb: int = 512   # conservative additional workspace admission budget
+    global_fft_candidates: int = 3
 
 
 @dataclass
