@@ -129,6 +129,13 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[DECISIÓN OPERATIVA]** No cambiar el algoritmo ni repetir pruebas de RAM, red, CI o umbrales. La siguiente acción mínima es **abrir el lado a lado ya generado y observar inicio, mitad y final** para comprobar que las vistas corresponden al mismo episodio y están alineadas. No exigir palmadas ni producir nuevos eventos de calibración. Solo luego decidir promoción/escala.
 - **[ALCANCE]** Este éxito usa el adaptador local PR #10; **no demuestra** que el pipeline automático anterior (que movía INBOX→RAW) ni la nueva ingestión NAS estén desplegados o autorizados.
 
+### 2026-10-31 — confirmación visual comunicada por el investigador
+
+- **[MANUAL / USER REPORT]** El investigador informó explícitamente que los vídeos candidatos generados por el adaptador FFT NumPy de septiembre **están sincronizados** después de su revisión visual. No se dispone en este registro público de una medición formal de error residual o deriva, ni de constancia de qué instantes concretos observó; no inventar esos detalles.
+- **[STATE]** Tres MP4 ya generados localmente en el servidor, sin publicar todavía en el NAS. El reporte confirma **sincronía visual aparente**, pero no equivale por sí solo al cierre formal del `QCApproved` ni a autorización de procesamiento automático de los demás juegos. Mantener separado éxito técnico, revisión visual y disposición formal de QC.
+- **[OPERATIONS]** La ausencia de vídeos en `02_SYNCED` fue explicada: el adaptador está diseñado para escribir únicamente en un directorio privado local de QC y no publica automáticamente en Synology. Abrir esa carpeta en el Explorador de Windows (no ejecutarla como comando PowerShell). La publicación futura debe ser una **copia verificada y no destructiva** cuando haya ruta, permisos y aprobación definidos.
+- **[PRIVACY]** Identificadores de caso, rutas locales completas, offset, duración individual e informes técnicos siguen exclusivamente en el registro QC privado.
+
 ## 3. Matemática esencial de sincronización
 
 ### 3.1 Convención del desfase (NO cambiar sin tests)
@@ -319,6 +326,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v0.9 · 2026-10-31** — El investigador reportó sincronía visual de los MP4 candidatos. Se aclaró que residen en scratch local del servidor y no en el NAS. QC formal/publicación siguen sin autorizarse.
 
 - **v0.8 · 2026-10-31** — Work informó PASS técnico del adaptador de septiembre con los tres MP4 locales y hashes de copias intactos. Offset exacto y rutas reales permanecen privados; falta QC visual/auditivo, sin despliegue NAS.
 
