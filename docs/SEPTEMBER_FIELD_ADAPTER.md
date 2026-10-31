@@ -100,7 +100,7 @@ LOCAL_OUTPUT_ROOT/
 
 ## Local synthetic test evidence
 
-The standalone implementation was checked with **11 targeted pytest cases**, including positive, negative, asymmetric and zero offsets; nested/multiple-game discovery; unique unnumbered session; duplicate and transfer blocking; original preservation, non-overwrite, and an end-to-end **three-MP4** FFmpeg run. All 11 passed in the initial local test environment. This is not a Dell/Windows/SMB or real scientific validation.
+The standalone implementation was checked with **12 targeted pytest cases**, including positive, negative, asymmetric and zero offsets; nested/multiple-game discovery; unique unnumbered session; duplicate and transfer blocking; original preservation, non-overwrite, and an end-to-end **three-MP4** FFmpeg run. All 12 passed in the initial local test environment. This is not a Dell/Windows/SMB or real scientific validation.
 
 ```powershell
 py -3.12 -m pytest -q tests/test_september_field_adapter.py
