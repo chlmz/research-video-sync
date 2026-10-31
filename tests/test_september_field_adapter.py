@@ -123,3 +123,14 @@ def test_end_to_end_september_three_mp4_no_original_change(tmp_path):
     with pytest.raises(module.SyncError, match='exists'):
         module.execute_job(jobs[0],target)
     assert not (root/'000003'/'delivery'/'synced').exists()
+
+
+def test_output_identity_cannot_traverse(tmp_path):
+    mom=tmp_path/'mom.avi'; child=tmp_path/'child.avi'
+    mom.write_bytes(b'x'); child.write_bytes(b'y')
+    for invalid in ['../escape', '000003/../../other', 'NOT_AN_ID']:
+        job=module.Job(invalid,'reviewed',1,mom,child,'explicit_user_pair')
+        with pytest.raises(module.SyncError, match='invalid participant'):
+            module.target_folder(tmp_path/'out',job)
+    with pytest.raises(module.SyncError):
+        module.target_folder(tmp_path/'out', module.Job('000003','../escape',1,mom,child,'explicit_user_pair'))
