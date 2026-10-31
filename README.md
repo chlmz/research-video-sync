@@ -1,5 +1,9 @@
 # research-video-sync
 
+> **Final public scientific synchronization algorithm:** [README_VIDEO_SYNC_ALGORITHM_FINAL.md](README_VIDEO_SYNC_ALGORITHM_FINAL.md). This documents the *September NumPy full-audio FFT* method, the nested session/game adapter, exact sign and encoding, synthetic tests, and one investigator-confirmed visually synchronized real pilot.
+>
+> **Separate and incomplete:** the operational pipeline to receive deliveries into `00_INBOX`, preserve admitted originals in `01_RAW`, then publish derived MP4 files in `02_SYNCED`. The new adapter writes **local QC results only**. No NAS publication, unattended scheduler or automatic scientific QC is active.
+
 Experimental 2026 recursive field inventory: see
 [FIELD_DISCOVERY.md](docs/FIELD_DISCOVERY.md). This read-only detector is separate
 from the processing pipeline below and does not authorize scientific processing.
@@ -11,7 +15,7 @@ accepts fixture-only approval contracts and is not a production entry point.
 Audio-based synchronisation of the two camera recordings (mother / child) of the RG2019 follow-up
 study, designed for a **Synology-Drive-synchronised project folder** on a private Windows workstation.
 
-> **Production = `pipeline_rg2019.py` (v2, Python).**
+> **Historical flat-folder implementation = `pipeline_rg2019.py` (v2, Python), NOT the approved live workflow for the current nested participant/session/game NAS tree.**
 > `sync_research_project.sh` and `sync_videos.sh` are **LEGACY**, kept only for history. Do **not** use them
 > on the NAS workflow: they write markers inside participant folders, trim the wrong camera
 > (`sync_videos.sh`), and abort after the first participant (`set -e`). See [docs/LEGACY_AUDIT.md](docs/LEGACY_AUDIT.md).
