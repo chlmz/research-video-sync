@@ -236,6 +236,9 @@ def make_side_by_side(ffmpeg: str, mother: Path, child: Path, target: Path) -> N
 
 
 def target_folder(output_root: Path, job: Job) -> Path:
+    if not re.fullmatch(r"\d{6}", job.participant) or not isinstance(job.game, int) or not 1 <= job.game <= 99:
+        raise SyncError("invalid participant or game in output identity")
+    safe_session(job.session)
     slug = hashlib.sha256(job.session.encode("utf-8")).hexdigest()[:12]
     return output_root / job.participant / f"session-{slug}" / f"game-{job.game:02d}"
 
@@ -294,6 +297,8 @@ def outside_input(output: Path, sources: list[Path], source_tree: Path | None = 
     if str(output).startswith(("\\\\", "//")):
         raise SyncError("output root must be local; network/UNC publication is disabled")
     resolved_output = output.resolve()
+    if str(resolved_output).startswith(("\\\\", "//")):
+        raise SyncError("resolved output root must not be a network/UNC path")
     if source_tree is not None and (resolved_output.is_relative_to(source_tree.resolve(strict=True))
                                     or source_tree.resolve(strict=True).is_relative_to(resolved_output)):
         raise SyncError("output root must be outside the entire source tree")
@@ -310,6 +315,8 @@ def plan(args) -> tuple[list[Job], list[str]]:
     if args.mom is not None:
         if len(args.participant or []) != 1 or len(args.session_root or []) != 1 or args.game is None:
             raise SyncError("explicit pair needs one --participant, one --session-root and --game")
+        if not re.fullmatch(r"\d{6}", args.participant[0]):
+            raise SyncError("participant must be a six-digit string")
         mom, child = args.mom.resolve(strict=True), args.child.resolve(strict=True)
         if mom == child or not mom.is_file() or not child.is_file() or linked(mom) or linked(child):
             raise SyncError("invalid or identical explicit pair")
