@@ -79,13 +79,15 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 
 ### 2026-10-30 23:41 (hora local) — rama nueva de búsqueda FFT global
 
-- **[CODE]** Apareció `codex/gpis-global-fft`, commit `5cbd7ddad928d36b774476f0a34e28317fff5bc4` (2026-10-31 02:41 UTC). Referencia: https://github.com/chlmz/research-video-sync/commit/5cbd7ddad928d36b774476f0a34e28317fff5bc4 . No se identifica todavía un PR abierto para esta rama; **no está integrada en `main`**.
+- **[CODE]** Apareció `codex/gpis-global-fft`, commit `5cbd7ddad928d36b774476f0a34e28317fff5bc4` (2026-10-31 02:41 UTC). Referencia: https://github.com/chlmz/research-video-sync/commit/5cbd7ddad928d36b774476f0a34e28317fff5bc4 . Se creó el **[PR #9](https://github.com/chlmz/research-video-sync/pull/9)** en estado Draft, apilado sobre el PR #7; **no está integrada en `main`**.
 - **[CODE]** `rg2019/syncest.py` conserva el estimador por ventanas como modo por defecto. La modalidad global es **opt-in** con `sync.global_fft_enabled=false`, máximo **3 candidatos** por defecto y presupuesto de admisión de **512 MiB**. La FFT propone picos globales con **correlación de Pearson normalizada en cada solapamiento**, usando la gama lineal correcta de desfases (corrige además el error de índice circular del Bash histórico con duraciones asimétricas).
 - **[CODE]** Cada candidato debe superar validación local con ventanas **disjuntas**, umbrales de NCC, relación de picos y consenso; si no hay exactamente un candidato validado, no se aprueba desfase. Los offsets mantienen la convención madre positiva; la corrección de inicio de pistas de audio se suma una sola vez.
 - **[CODE]** Se estima el costo de asignación **antes de ejecutar** la FFT, hasta un presupuesto configurado de **4096 MiB**; si excede presupuesto se rechaza la operación. Es una predicción de memoria, **no un límite de RAM impuesto por el sistema operativo**, y la opción estándar de 512 MiB puede no admitir grabaciones extensas.
-- **[CODE]** Se añadieron `docs/GLOBAL_FFT.md`, `tests/test_global_fft.py` y configuración de CI para la nueva rama. Los casos sintéticos cubren desfases largos y de ambos signos, duraciones asimétricas, silencio/no-relación, periodicidad, límites de memoria, fuentes mapeadas, timestamps y una prueba a 8 kHz. **La existencia de tests no equivale a que hayan pasado ni a QC real.**
-- **[CI]** El workflow `Python tests` para ese commit arrancó 2026-10-31 02:42:49 UTC y terminó **SUCCESS** 2026-10-31 02:46:52 UTC, con ambos jobs completados satisfactoriamente (**Ubuntu 24.04 y Windows 2022**). No se atribuyen recuentos de tests no verificados individualmente. Fuente: https://github.com/chlmz/research-video-sync/actions/runs/41161224041 .
-- **[OPEN]** Establecer PR de revisión, revisar críticamente el diseño y su presupuestación de memoria e implementar una validación autorizada sobre los audios de diagnóstico. El modo sigue apagado; la CI favorable no significa que haya generado archivos reales.
+- **[CODE]** Se añadieron `docs/GLOBAL_FFT.md`, `tests/test_global_fft.py` y configuración de CI para la nueva rama. Los casos sintéticos cubren desfases largos y de ambos signos, duraciones asimétricas, silencio/no-relación, periodicidad, límites de memoria, fuentes mapeadas, timestamps y una prueba a 8 kHz. **Las pruebas sintéticas deben verificarse en el CI exacto y no equivalen a QC real.**
+- **[CI]** El workflow `Python tests` para ese commit arrancó 2026-10-31 02:42:49 UTC y terminó **SUCCESS** 2026-10-31 02:46:52 UTC, con ambos jobs completados satisfactoriamente (**Ubuntu 24.04 y Windows 2022**). Se verificaron sus resúmenes de job: **Windows 309 PASS, 0 errores/fallos/omisiones**; **Ubuntu 308 PASS, 1 SKIP (junction de Windows), 0 errores/fallos**. Las 13 pruebas nuevas ya están incluidas en esos totales. Fuente: https://github.com/chlmz/research-video-sync/actions/runs/41161224041 .
+- **[OPEN]** PR #9 creado en Draft. Falta caracterizar consumo de memoria y ejecutar una única validación diagnóstica autorizada con audio local; ningún MP4 real se ha generado. El modo sigue apagado; la CI favorable no significa que haya generado archivos reales.
+
+**[CODE / EJEMPLO HIPOTÉTICO]** La preadmisión de la FFT usa `192*next_fast_len(M+N-1)+64*(M+N)` bytes. Para **600 segundos combinados inventados** a 8 kHz el costo estimado es ~**1.172 MiB** de memoria adicional, fuera de audio original y overhead del runtime. Por tanto 512 y 1024 MiB no alcanzan; no cambiar presupuestos automáticamente. En el experimento Dell se deben medir la longitud real de PCM y RAM libre; no publicar metadatos reales.
 
 ## 3. Matemática esencial de sincronización
 
@@ -249,7 +251,7 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 
 ## 11. Pendientes y próximos hitos
 
-- **[CI / OPEN]** CI del commit `5cbd7d...` aprobada en Windows y Linux; revisar matemáticamente signo, normalización, admisión de memoria, ambigüedad y comportamiento con audio no relacionado. Falta PR para la rama experimental y el modo permanece desactivado.
+- **[CI / OPEN]** PR #9 en Draft, SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`: 309 PASS Windows; 308 PASS + 1 SKIP Ubuntu. La revisión inicial del código no detectó regresión matemática reproducible; falta medir recursos reales y validar audio local sin activar el pipeline. Modo global sigue desactivado por defecto.
 - **[OPEN]** Ejecutar ese estimador con los WAV existentes del piloto controlado en el Dell, sin cambiar originales, y conservar métricas. Si no hay coincidencia acústica, resolver científicamente el emparejamiento.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
 - **[OPEN]** Generar dos MP4 y side-by-side locales y registrar QC manual de inicio, medio y final. **No declarar hecho aún.**
@@ -277,6 +279,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **v0.3 · 2026-10-30** — PR #9 Draft creado; revisión CI exacta, memoria de ejemplo sintético y límites científicos documentados. Sin publicación de parámetros o duraciones de grabaciones reales.
 
 - **v0.2 · 2026-10-30** — Registro de nueva rama experimental global FFT y saneamiento de datos sensibles de documentación pública.
 
