@@ -12,7 +12,7 @@
 | Public source repository | https://github.com/chlmz/research-video-sync |
 | Supported modality | Dual audiovisual recordings of mother-child interactions, with generalizable roles |
 | Core method | Audio-derived constant offset, validation, frame-accurate trim/MP4 encoding, guarded publication |
-| Repository version for reviewed contract v2 | `a21279d6c7313d65eb1239e70f1bae3ae62b1420` (draft PR #7; **not** a release) |
+| Reviewed draft revisions | Delivery v2: `a21279d6c7313d65eb1239e70f1bae3ae62b1420` (PR #7); optional global FFT: `5cbd7ddad928d36b774476f0a34e28317fff5bc4` (PR #9). Neither is a released version. |
 | Project maintainer(s) and author contributions | **To be approved**; do not invent names or contributor order |
 | Institution(s), acknowledgments and funding | **To be confirmed** through official records |
 | License | **Not specified** in the reviewed tree; choose and add an approved open-source license before inviting reuse |
@@ -29,7 +29,8 @@ Do not describe this product as validated, certified, clinically appropriate or 
 - [x] Original algorithm/sign convention and legacy defects have reproducible references.
 - [x] Separate scientific method, human quickstart, AI adaptation guide and public/private boundary are drafted.
 - [x] Guarded synthetic workflow, deep discovery and versioned delivery contract exist in draft source branches.
-- [ ] Decide how to implement/test wide-lag offset candidate generation and independent multiclip confirmation without excessive memory.
+- [x] Implement **synthetic-only** wide-lag normalized FFT proposal with disjoint-window confirmation and preflight memory estimate in [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9) at `5cbd7ddad928d36b774476f0a34e28317fff5bc4`. **Not merged, released or empirically QC-approved.**
+- [ ] Run a controlled estimator-only diagnostic with authorized local audio, measured sample lengths and memory free space; independently adjudicate whether long-lag alignment is correct.
 - [ ] Validate full-length field AVI/H.264/PCM behavior and timestamp consistency; distinguish harmless warnings from actual frame corruption.
 - [ ] Integrate scientifically reviewed session/game identity and final producer manifest with the field copy workflow.
 - [ ] Integrate side-by-side generation with the **safe** processing executor, if adopted as mandatory final output.
