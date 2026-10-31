@@ -1,5 +1,7 @@
 # AI agent guide — understand, reproduce and adapt RG2019 video synchronization
 
+> **Authoritative final algorithm specification:** [September 2026 full-audio FFT algorithm](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/README_VIDEO_SYNC_ALGORITHM_FINAL.md). Preserve this fixed reference when reproducing the successful pilot. This guide additionally covers the *separate* operational/synthetic architecture; the NAS pipeline remains private and incomplete.
+
 > **Purpose:** a deterministic, evidence-first handoff protocol for any coding or research AI. This is **not** a system prompt granting access to real research files, accounts or networks. The repository and this guide are public. Reference implementation reviewed at `a21279d6c7313d65eb1239e70f1bae3ae62b1420`. Some major features remain restricted to synthetic data.
 
 ## Start here (mandatory reading order)
