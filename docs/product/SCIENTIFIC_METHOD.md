@@ -1,6 +1,6 @@
 # Scientific synchronization method and QC — living specification
 
-> **Status:** engineering specification grounded in code as of `a21279d6c7313d65eb1239e70f1bae3ae62b1420`. Only synthetic behavior has passed automated CI. The proposed wider-range FFT candidate stage is **not yet implemented at this reference SHA**. Scientific QC for actual recordings has not been approved.
+> **Status:** engineering specification. The underlying documented contract v2 is `a21279d6c7313d65eb1239e70f1bae3ae62b1420`; the new FFT option is implemented **only in separate unmerged [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9)** at `5cbd7ddad928d36b774476f0a34e28317fff5bc4`. Only synthetic behavior has passed CI; real scientific synchronization has not been approved.
 
 ## 1. Scientific problem and unit of analysis
 
@@ -24,7 +24,7 @@ offset = 0 → no leading trim
 
 This is fixed in `rg2019/syncest.py` and verified by `tests/test_syncest.py` and `tests/test_legacy_audit.py`. **Do not reverse the sign**. A September two-file shell utility mistakenly trimmed the *other* camera; do not reuse it.
 
-The difference between recording durations is **not** the start-time offset. For example, durations 378.867 s and 220.800 s differ by 158.067 s, but could reflect unequal start **and/or end** times, incorrect container timestamps, or a different scientific episode.
+The difference between recording durations is **not** the start-time offset. In an **invented example** with 400 s and 220 s of recordings, the 180 s duration difference could reflect unequal start **and/or end** times, incorrect container timestamps or a different scientific episode; it does not prove the lag.
 
 The present method estimates a **constant offset**. Disagreement between windows can indicate noise, mispairing or clock drift; it does not correct drift.
 
@@ -61,21 +61,36 @@ Read the executable reference `rg2019/syncest.py` and dataclass defaults `rg2019
 
 The default `min_ncc=0.05` and other thresholds are implementation values, **not yet externally calibrated scientific acceptance thresholds**. The pipeline must not silently adjust them to make a difficult pair pass.
 
-## 5. Proposed wide-range candidate stage (not yet implemented at reference SHA)
+## 5. Optional global FFT candidate search — unmerged draft PR #9
 
-The September whole-signal FFT search motivates an enhancement: propose offset candidates across a wider lag range, using memory-conscious techniques, and confirm each candidate with independent local windows plus the existing consensus/confidence criteria. Do not substitute an unnormalized global maximum for QC, and do not blindly raise `max_lag_seconds` just because the *durations differ*.
+[Draft PR #9](https://github.com/chlmz/research-video-sync/pull/9) implements the optional global candidate search at commit `5cbd7ddad928d36b774476f0a34e28317fff5bc4`. The [mathematical reference](https://github.com/chlmz/research-video-sync/blob/5cbd7ddad928d36b774476f0a34e28317fff5bc4/docs/GLOBAL_FFT.md) is version-pinned. **The feature is not in the baseline #7 SHA, not merged/released and disabled by default. No field recording has passed it yet.**
 
-Acceptance tests must include at minimum:
-- Known positive, negative and zero offsets.
-- Realistic offsets greater than 120 seconds.
-- Different recording durations and different start **and end** points.
-- Different audio amplitudes, background noise, missing/shared audio and unrelated recordings.
-- Repetitive acoustic patterns, silent intervals and coincident false peaks.
-- Clock drift and interrupted streams (flag appropriately; do not claim fixed-offset correction).
-- Controlled comparison to September's verified sign convention.
-- Memory/time bounded behavior on long synthetic recordings.
+The September unqualified whole-audio maximum and its circular half-length lag interpretation are **not** reused. The Python implementation uses FFT convolution with reversed child audio and valid linear lags `-(N-1)..(M-1)`. Its whole-overlap correlation is locally mean- and variance-normalized (Pearson NCC), using prefix sums:
 
-When and only when the implementation is merged/released, replace this section with the actual algorithm, exact parameters, limits, SHA and evidence.
+```text
+C(k) = Σ_j mom[j+k] * child[j]
+NCC(k) = (C(k) - S_m*S_c/n) / sqrt((Q_m-S_m²/n)*(Q_c-S_c²/n))
+```
+
+Here `n` is the overlap length and `S_m`, `S_c`, `Q_m`, `Q_c` are sums and squared sums **within that overlap**. Minimal-overlap and effectively silent peaks are excluded. The largest distinct peaks merely **propose** candidate lags; they do not establish scientific synchronization.
+
+Each proposal is independently validated with **disjoint windows**, local NCC/peak-ratio criteria, agreement tolerance and fraction, and at least **three** agreeing windows. Exactly **one** independently validated candidate must remain. Unknown/unrelated audio and plausible competing offsets remain blocked. The correct mother-positive sign convention and audio-stream timestamp adjustment are unchanged.
+
+| Option at experimental SHA | Default | Notes |
+|---|---:|---|
+| `global_fft_enabled` | `false` | Explicit opt-in only |
+| `global_fft_candidates` | 3 | Accepted range 2–8 |
+| `global_fft_memory_mb` | 512 MiB | Accepted range 1–4096 MiB; estimate, **not** a hard RSS cap |
+| `sample_rate` | 8 kHz | Audio analysis, full resolution |
+| `window_seconds` | 60 s | Disjoint validation |
+| `fine_search_seconds` | 2 s | Local confirmation |
+| `min_agreeing_windows` | 3 | Required consensus |
+
+The memory admission formula is `192*next_fast_len(M+N-1)+64*(M+N)` **bytes** plus separate validation-window checks; the formula omits caller-owned PCM and operating-system/library overhead. A **hypothetical** ~600 s combined recording at 8 kHz would need approximately **1,172 MiB estimated additional workspace**, so the default 512 MiB (and 1024 MiB) would block. Sample counts and free RAM must be checked locally before deliberately choosing any larger experimental budget. Do not use a large budget as a substitute for scientific validation.
+
+**Synthetic CI verified at exactly this SHA:** [Actions run 41161224041](https://github.com/chlmz/research-video-sync/actions/runs/41161224041): Windows 309 passed; Ubuntu 308 passed and one Windows-specific junction test skipped; zero failures. The 13 new tests are **included** in the totals. They address ±180 s and ±350 s offsets, asymmetry, unrelated and repetitive sound, memory admission, timestamp adjustment and immutable inputs. This does **not** mean that a real participant has been synchronized.
+
+**Next gate:** authorize one diagnostic estimator call on already-preserved local audio copies, verify sample rate, free RAM and actual sample counts, and record candidate/window evidence without editing sources or enabling the guarded real-media pipeline. The synthetic worker's **120 s input limit remains intact**. All scientific QC remains `NotApproved`.
 
 ## 6. AVI and codec handling
 
@@ -104,9 +119,9 @@ Suggested structured QC record (fields, not invented results): study/pipeline ve
 
 ## 8. Actual evidence from first controlled real pilot (report only)
 
-The responsible operator reported that a pair from a numbered game was copied to scratch with unchanged SHA-256 and timestamps, with mother/child container durations 378.867/220.800 s. Audio extraction passed, but **0/7 coarse windows** passed, median NCC **0.0207**, confidence **0**, and no offset was accepted. No synchronized MP4 were produced. The responsible researcher subsequently reported that the AVI play normally.
+The responsible operator reported that a pair from a numbered game was copied to controlled local scratch with unchanged original/copy SHA-256. Audio extraction passed, but coarse-window consensus was insufficient; no offset was accepted and no synchronized MP4 were produced. The researcher reported that both AVI played normally. **Exact real-media durations and individual acoustic metrics are retained in private QC evidence, not this public document.**
 
-**Interpretation:** the pair is **not yet scientifically synchronized**. Plausible explanations include a lag outside ±120 seconds, insufficient shared acoustics, incorrect pair/session, or timestamp effects; none has been established. Do not present this as a failure of the cohort or as proof of video corruption.
+**Interpretation:** the pair is **not yet scientifically synchronized**. Plausible explanations include a lag outside the earlier ±120-second search, insufficient shared acoustics, incorrect pairing or timestamp effects; none has been established. The optional global FFT has not yet been tested with these private recordings. Do not present this as a failure of the cohort or as proof of video corruption.
 
 ## 9. Evidence and code references
 
