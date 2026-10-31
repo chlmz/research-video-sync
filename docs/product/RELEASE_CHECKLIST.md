@@ -30,7 +30,8 @@ Do not describe this product as validated, certified, clinically appropriate or 
 - [x] Separate scientific method, human quickstart, AI adaptation guide and public/private boundary are drafted.
 - [x] Guarded synthetic workflow, deep discovery and versioned delivery contract exist in draft source branches.
 - [x] Implement **synthetic-only** wide-lag normalized FFT proposal with disjoint-window confirmation and preflight memory estimate in [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9) at `5cbd7ddad928d36b774476f0a34e28317fff5bc4`. **Not merged, released or empirically QC-approved.**
-- [ ] Run a controlled estimator-only diagnostic with authorized local audio, measured sample lengths and memory free space; independently adjudicate whether long-lag alignment is correct.
+- [x] Run the controlled estimator-only global FFT diagnostic with authorized local audio and measured memory; **neither tested configuration accepted a candidate**. No output was approved.
+- [ ] Locate and verify a common independent audiovisual anchor (preferably two temporally separated events), assess residual lag/drift, and use this evidence to decide whether the estimator needs a targeted change rather than lower acceptance thresholds.
 - [ ] Validate full-length field AVI/H.264/PCM behavior and timestamp consistency; distinguish harmless warnings from actual frame corruption.
 - [ ] Integrate scientifically reviewed session/game identity and final producer manifest with the field copy workflow.
 - [ ] Integrate side-by-side generation with the **safe** processing executor, if adopted as mandatory final output.
