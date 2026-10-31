@@ -110,7 +110,7 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **[USER DECISION]** El responsable corrigió la estrategia: la técnica de **palmadas/anclas audiovisuales manuales ya se había discutido y descartado** como requisito de sincronización. No se repetirá esa propuesta como condición para avanzar. La decisión de «buscar ancla» documentada arriba queda **SUPERADA/SUSTITUIDA**; conservarla solo como evidencia de la desviación.
 - **[USER DECISION]** El algoritmo que había funcionado con pilotos en septiembre, `sync_research_project.sh` (ruta NumPy), debe reutilizarse **tal como calculaba el offset**: correlación FFT del audio completo a 16 kHz, RMS normalizado, máximo global y recorte correcto, seguido de **dos MP4 y composición lateral**. No introducir en ese adaptador filtros NCC/ventanas cuya falta de candidatos impidió el ensayo.
 - **[CODE]** Se implementó un adaptador independiente `sync_september_field.py` en el [PR #10 Draft](https://github.com/chlmz/research-video-sync/pull/10) sobre la rama FFT experimental. Adapta el método a participante → **sesión revisada** → subcarpetas de cámara/DCIM → juegos `mother1/children1`, `mother2/children2`. Corrige únicamente el índice FFT del lag lineal para duraciones muy desiguales, sin invertir recortes. Evita parejas ambiguas, mueve los datos **solo mediante copia verificable a scratch local** y **nunca escribe en RAW/INBOX ni NAS**.
-- **[CODE/TEST]** El nuevo script crea los tres MP4 y reportes JSON/CSV únicamente locales, con estado `CANDIDATE_FOR_MANUAL_QC` / `NotApproved`. **11 pruebas sintéticas focalizadas PASS**, incluida una exportación FFmpeg completa; falta ejecución con las fuentes reales del piloto. Véase [código](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/sync_september_field.py) y [guía](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/docs/SEPTEMBER_FIELD_ADAPTER.md).
+- **[CODE/TEST]** El nuevo script crea los tres MP4 y reportes JSON/CSV únicamente locales, con estado `CANDIDATE_FOR_MANUAL_QC` / `NotApproved`. **12 pruebas sintéticas focalizadas PASS**, incluida una exportación FFmpeg completa; falta ejecución con las fuentes reales del piloto. Véase [código](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/sync_september_field.py) y [guía](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/docs/SEPTEMBER_FIELD_ADAPTER.md).
 - **[SCIENTIFIC DISTINCTION]** Recuperar el máximo FFT histórico no garantiza que sea un offset cierto en audios poco comparables. La decisión es **generar candidatos audiovisuales como antes para revisión posterior**, sin afirmar QC aprobado, sin usar el pico NCC previamente rechazado como offset y sin degradar el estado de evidencia/seguridad.
 - **[PRODUCT LESSON]** El algoritmo y los bloqueos de recepción/infraestructura son componentes distintos: no alterar una estrategia funcional de estimación al adaptar el árbol de carpetas; aislar los nuevos controles operativos para que no invaliden un flujo que producía resultados revisables.
 
@@ -223,7 +223,7 @@ La publicación robusta de pruebas usa intents, verificaciones SHA-256, intentos
 | Código original global FFT recupera signos correctos con audio sintético | [CODE/CI] tests `test_legacy_audit.py` |
 | Descubrimiento recursivo y recepción v2 | [CODE/CI] PR #4 y #7 |
 | Pipeline sintético en Windows y Linux | [CI] PR #7: 296 PASS Windows, 295 PASS + 1 SKIP Ubuntu |
-| Primitivas SMB bajo cuenta de servicio | [FIELD REPORT] 11 pruebas funcionales PASS; evidencia NAS histórica adicional |
+| Primitivas SMB bajo cuenta de servicio | [FIELD REPORT] 12 pruebas funcionales PASS; evidencia NAS histórica adicional |
 | Copias autorizadas de vídeo real conservaron integridad SHA-256 | [FIELD REPORT] PASS |
 | Vídeos del piloto controlado son visualmente reproducibles | [MANUAL] Sí, reportado por investigador |
 | Offset correcto del piloto controlado juego 1 | **NO**: 0/7 ventanas; no estimado |
@@ -305,7 +305,7 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 
 ### Registro de revisiones
 
-- **v0.6 · 2026-10-31** — Decisión explícita: se descarta la palmada como requisito, se abandona el ajuste reiterado de umbrales; PR #10 con la ruta FFT NumPy de septiembre adaptada a sesiones/juegos profundos, 11 tests sintéticos PASS, tres MP4 locales pendientes de evaluación científica.
+- **v0.6 · 2026-10-31** — Decisión explícita: se descarta la palmada como requisito, se abandona el ajuste reiterado de umbrales; PR #10 con la ruta FFT NumPy de septiembre adaptada a sesiones/juegos profundos, 12 tests sintéticos PASS, tres MP4 locales pendientes de evaluación científica.
 
 - **v0.5 · 2026-10-31** — Dos ensayos FFT globales reales realizados: el segundo, con ventanas más cortas, superó la puerta de solapamiento pero no la de similitud; sin offset validado, sin MP4 y QC NotApproved. Siguiente paso: evento audiovisual común, sin ajustar umbrales ni publicar métricas reales.
 
