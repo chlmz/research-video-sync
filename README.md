@@ -126,7 +126,7 @@ The following is **as verified for commit `a21279d6c7313d65eb1239e70f1bae3ae62b1
 | Unique unnumbered pair → inferred game 1, only with explicitly reviewed session | Implemented behind a review gate |
 | Delivery contract `rg2019.delivery.v2`: independent session UUID, all selected files/auxiliaries, SHA-256 and exclusions | Implemented and tested synthetically |
 | Existing offset estimator: 8 kHz audio, coarse windows ±120 s, NCC/peak/consensus tests, fine correction | Implemented, works with generated fixture audio |
-| Global wide-offset FFT as a *candidate* stage, based on September experience | **Proposed, not yet implemented at this SHA** |
+| Global wide-offset FFT as a *candidate* stage | **Implemented experimentally in [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9), SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`; opt-in, disabled by default, and **not included in the pinned quickstart SHA**. Synthetic [CI](https://github.com/chlmz/research-video-sync/actions/runs/41161224041): 309 PASS Windows, 308 PASS / 1 SKIP Ubuntu; no real-media validation. |
 | Isolated local synthetic processing, two MP4s, immutable results and recovery | Implemented; real execution blocked |
 | Side-by-side encoding | Existing API, **not integrated into safe end-to-end flow** |
 | Live field source admission, automatic NAS publication, daily scheduler | **Not authorized/implemented as a safe production path** |
@@ -134,7 +134,11 @@ The following is **as verified for commit `a21279d6c7313d65eb1239e70f1bae3ae62b1
 | Human scientific QC and release authorization | **NotApproved / pending** |
 | Windows/Ubuntu CI at this SHA | [Actions run 41157402895](https://github.com/chlmz/research-video-sync/actions/runs/41157402895): Windows **296 passed**, Ubuntu **295 passed / 1 Windows-specific skip**; no failures. **Synthetic only** |
 
-An actual pair from the cohort was inspected under private controls, with original/copy hashes preserved and visible video reportedly playable. The old estimator returned no confidence and appropriately refused to generate a synchronized result. **Do not treat this as evidence that the data are invalid, or quietly force an offset.** The developer journal keeps the error history so it cannot be forgotten.
+An actual pair from the cohort was inspected under private controls, with original/copy hashes preserved and visible video reportedly playable. The old estimator returned no confidence and appropriately refused to generate a synchronized result. The new optional FFT mode has **not** yet been run on the private diagnostic audio, so this status is unchanged. **Do not treat this as evidence that the data are invalid, or quietly force an offset.** The developer journal keeps the error history so it cannot be forgotten.
+
+### Experimental wide-range FFT change (separate draft PR)
+
+[PR #9](https://github.com/chlmz/research-video-sync/pull/9) includes an opt-in normalized full-audio candidate search and independent window validation, correcting sign/index behavior of highly asymmetric recordings. It is disabled by default. [Technical explanation](https://github.com/chlmz/research-video-sync/blob/5cbd7ddad928d36b774476f0a34e28317fff5bc4/docs/GLOBAL_FFT.md) and [exact CI](https://github.com/chlmz/research-video-sync/actions/runs/41161224041) are available at SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`. **This code is not present in the older pinned quickstart and is not released or scientifically validated.** A hypothetical combined audio duration of ~600 seconds at 8 kHz requires approximately 1,172 MiB of *estimated additional FFT workspace*; the 512 MiB default will block. It is not a strict OS memory cap. Operators must measure actual local PCM duration/free RAM before choosing a reviewed experimental budget; no automatic increase or bypass is justified.
 
 ## Repository map
 
