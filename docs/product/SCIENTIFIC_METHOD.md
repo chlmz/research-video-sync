@@ -90,7 +90,7 @@ The memory admission formula is `192*next_fast_len(M+N-1)+64*(M+N)` **bytes** pl
 
 **Synthetic CI verified at exactly this SHA:** [Actions run 41161224041](https://github.com/chlmz/research-video-sync/actions/runs/41161224041): Windows 309 passed; Ubuntu 308 passed and one Windows-specific junction test skipped; zero failures. The 13 new tests are **included** in the totals. They address ±180 s and ±350 s offsets, asymmetry, unrelated and repetitive sound, memory admission, timestamp adjustment and immutable inputs. This does **not** mean that a real participant has been synchronized.
 
-**Next gate:** authorize one diagnostic estimator call on already-preserved local audio copies, verify sample rate, free RAM and actual sample counts, and record candidate/window evidence without editing sources or enabling the guarded real-media pipeline. The synthetic worker's **120 s input limit remains intact**. All scientific QC remains `NotApproved`.
+**Status of the first controlled real-media diagnostic:** the global FFT was executed on authorized local copies with sufficient physical memory, but no candidate satisfied the configured audio-similarity criterion. One additional controlled run shortened the validation windows and permitted eligible overlap, but the best peak still failed the unchanged NCC threshold. No offset, independent validation windows or MP4 were produced. This is a failure to establish an acoustic match, **not** proof of different scientific sessions or permanent media corruption. Individual metrics and paths remain in a private QC log. **Next gate:** identify an unmistakably common event in both views and independently note the two media timestamps; where possible identify a second event to assess drift before further algorithm changes. The synthetic worker's **120 s input limit remains intact**. All scientific QC remains `NotApproved`.
 
 ## 6. AVI and codec handling
 
@@ -121,7 +121,7 @@ Suggested structured QC record (fields, not invented results): study/pipeline ve
 
 The responsible operator reported that a pair from a numbered game was copied to controlled local scratch with unchanged original/copy SHA-256. Audio extraction passed, but coarse-window consensus was insufficient; no offset was accepted and no synchronized MP4 were produced. The researcher reported that both AVI played normally. **Exact real-media durations and individual acoustic metrics are retained in private QC evidence, not this public document.**
 
-**Interpretation:** the pair is **not yet scientifically synchronized**. Plausible explanations include a lag outside the earlier ±120-second search, insufficient shared acoustics, incorrect pairing or timestamp effects; none has been established. The optional global FFT has not yet been tested with these private recordings. Do not present this as a failure of the cohort or as proof of video corruption.
+**Interpretation:** the pair is **not yet scientifically synchronized**. Plausible explanations include a lag outside the earlier ±120-second search, insufficient shared acoustics, incorrect pairing or timestamp effects; none has been established. The optional global FFT has now been tested on these private recordings, but no correlation peak met the preset minimum in either of the two controlled configurations; no offset has been validated. Do not present this as a failure of the cohort or as proof of video corruption.
 
 ## 9. Evidence and code references
 
