@@ -1,6 +1,6 @@
 # Public scientific software product — release and reporting checklist
 
-> **Status at 2026-10-30:** PRE-RELEASE / research prototype. The public GitHub repository exists, but its main branch and draft PRs do not constitute an operationally or scientifically validated release. This document is a gate, **not a declaration of completion**.
+> **Status reviewed 2026-11-01:** PRE-RELEASE / research prototype. The public GitHub repository exists, but its main branch and draft PRs do not constitute an operationally or scientifically validated release. This document is a gate, **not a declaration of completion**.
 
 ## Intended product identification (draft)
 

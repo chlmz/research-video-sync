@@ -1,6 +1,6 @@
 # Getting started — human guide (synthetic only)
 
-> **Current scope:** reproducible local demonstration using invented audio/video and file trees. This is **not** authorization to run the historical live pipeline or operate on cohort participants. Code reviewed against `a21279d6c7313d65eb1239e70f1bae3ae62b1420` (PR #7). Commands below follow the repository entrypoints; live deployment has not been validated.
+> **Current scope:** reproducible local demonstration using invented audio/video and file trees. This is **not** authorization to run the historical live pipeline or operate on cohort participants. Code reviewed against `a21279d6c7313d65eb1239e70f1bae3ae62b1420` (PR #7). Commands below follow the repository entrypoints; live deployment has not been validated. The [September field adapter (draft PR #10)](https://github.com/chlmz/research-video-sync/pull/10) is **not included in this pinned PR #7 checkout**. Its three local candidate MP4s and reported visual pilot result do not change this synthetic-only demonstration.
 
 ## Audience and expected result
 

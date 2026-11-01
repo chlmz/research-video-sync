@@ -24,7 +24,7 @@ A document being Markdown, a repository being public already, or a file being ex
 - Database exports, research datasets, operational diagnostic files containing internal paths, user profiles, scripts with hard-coded accounts, files supplied by private collaborators.
 - Public fragments that could identify a subject indirectly even after the name was removed (timestamps, file sizes, filenames, location or unusual combinations).
 
-Some hardware descriptions may be non-sensitive, but the full topology, access routes and security posture are operationally sensitive. Keep those specifics in private inventory.
+Only abstract technical **roles** belong in a public topology. Do not publish operational asset inventories, real site descriptions, model/device counts, link speeds, storage capacities, backup device counts or unique network layouts. Keep topology and security posture specifics in a separately authorized private inventory.
 
 ## Storage strategy
 

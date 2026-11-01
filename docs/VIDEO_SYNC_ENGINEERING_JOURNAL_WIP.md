@@ -1,7 +1,7 @@
 # GPIS / Coorte RG2019 — Bitácora técnica de sincronización de vídeos (DOCUMENTO VIVO)
 
 > **Estado:** BORRADOR / WIP — no representa autorización de producción.
-> **Versión del documento:** 0.1 — 2026-10-30 (America/Sao_Paulo).
+> **Revisión documental:** 2026-11-01 — conciliación de evidencia manual y arquitectura pública; no son nuevos tests.
 > **Propósito:** memoria verificable, transferible a otra IA o equipo, de **qué se hizo, cuándo, cómo, por qué, con qué evidencia, qué falló y qué no se debe repetir**. Se completará a medida que se validen las etapas. El README definitivo solo se emitirá cuando la sincronización real esté científicamente verificada.
 > **Repositorio:** https://github.com/chlmz/research-video-sync
 > **Base documental del desarrollo actual:** commit `a21279d6c7313d65eb1239e70f1bae3ae62b1420` (PR #7, draft).
@@ -58,7 +58,7 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 - **PR #4**: descubrimiento recursivo conservador de vídeos y clasificación por sesión/juego, sin abrir vídeo ni resolver ambigüedades automáticamente.
 - **PR #5**: puertas de autorización sintética y prueba con fuentes inventadas.
 - **PR #6**, head `21184f99628d8ba79cb5a8badc12cf6f8742c820`: publicación segura, scratch local, hashes, manifiesto, `COMMITTED`, intentos inmutables, idempotencia, control de rutas Windows y clasificación de errores.
-- [FIELD REPORT] En Dell Windows 11, suite de regresión 264 PASS, 0 FAIL, 2 SKIP reportados; prueba funcional SMB posterior 11 controles PASS bajo una identidad de servicio sin privilegios administrativos sin elevación. La observación de identidad SMB histórica se corroboró por registros NAS del 29/10; no debe presentarse como identidad independiente registrada para **la misma** sesión SMB del 30/10.
+- [FIELD REPORT] En un entorno Windows controlado se reportaron 264 PASS, 0 FAIL, 2 SKIP de regresión; una prueba posterior de almacenamiento sintético informó 11 controles PASS bajo identidad limitada. No equivale a operación desatendida ni publicación real.
 - **PR #7** `codex/gpis-delivery-v2`, head `a21279d6c7313d65eb1239e70f1bae3ae62b1420`: manifiesto de recepción `rg2019.delivery.v2`, UUID de sesión independiente, SHA-256, materiales auxiliares, exclusiones trazadas y juego 1 inferido solo para par único en sesión revisada. [CI] Windows: 296 PASS / 0 FAIL; Ubuntu: 295 PASS / 1 SKIP. Son pruebas sintéticas, no validación con vídeos reales.
 - Documentos base: `docs/PREPRODUCTION.md`, `docs/DELIVERY_V2.md`, `docs/STORAGE_PERMISSIONS.md`.
 - Todos los PR anteriores permanecían en borrador en la evaluación original. No asumir despliegue ni merge por la existencia de ramas.
@@ -123,7 +123,7 @@ No se permite inferir que dos vídeos son del mismo juego por fecha, orden `SNAP
 ### 2026-10-31 — primer ensayo real completo del adaptador de septiembre: tres MP4 de QC generados
 
 - **[FIELD REPORT / WORK]** Tras corregirse el SHA de traspaso y verificar el checkout del PR #10, Work ejecutó **una** prueba local del método NumPy FFT completo de septiembre sobre el par de AVI ya conservado en scratch privado. La ejecución **terminó sin error de FFmpeg** y produjo tres salidas locales: vista madre, vista niño y composición lado a lado.
-- **[FIELD REPORT / WORK]** La FFT histórica produjo un desfase **positivo** y, de acuerdo con la convención verificable del script, recortó el inicio de la **madre**, sin recortar el inicio del vídeo del niño. La comprobación posterior de hashes informó que las dos copias originales permanecieron intactas. Los tiempos, rutas, SHA-256 de medios y datos individuales figuran exclusivamente en el **registro QC privado**.
+- **[FIELD REPORT / WORK]** La FFT histórica produjo un desfase candidato y aplicó recortes según la convención matemática pública. Se informó que las copias fuente permanecieron intactas. El signo y valor del desfase real, hashes y demás detalles individuales se conservan solo en QC privado.
 - **[RESULTADO TÉCNICO]** **PASS de procesamiento/exportación real** en el adaptador histórico: tres MP4 presentes, más informe de resultado, duración y hashes, según evidencia reportada por Work. No existe todavía constancia de revisión humana independiente del sincronismo en inicio/medio/final.
 - **[LÍMITE CIENTÍFICO]** El método de septiembre elige el máximo de correlación global sin superar los criterios de la vía Pearson/NCC experimentada; un resultado procesado **no equivale a un desfase científicamente validado**. Mantener `QC=NotApproved`, no usar para análisis/publicación científica y no subir esos medios al repositorio público.
 - **[DECISIÓN OPERATIVA]** No cambiar el algoritmo ni repetir pruebas de RAM, red, CI o umbrales. La siguiente acción mínima es **abrir el lado a lado ya generado y observar inicio, mitad y final** para comprobar que las vistas corresponden al mismo episodio y están alineadas. No exigir palmadas ni producir nuevos eventos de calibración. Solo luego decidir promoción/escala.
@@ -303,21 +303,21 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 2. **Evidencia de entrega:** manifiesto final externo, selección completa, SHA-256, renombrados, auxiliares y exclusiones.
 3. **Propiedades reales de media:** codecs, contenedores, tiempos de audio/vídeo, duraciones, variabilidad de FPS, calidad de audio; no fiarse de extensiones.
 4. **Modelo de sincronización:** fórmula y signo, rango de desfase esperado, si existe sonido común, deriva, interrupciones; definir qué cuenta como consenso y qué obliga a QC.
-5. **Dos algoritmos complementarios:** búsqueda amplia de candidatos eficiente y comprobación local independiente y robusta, sin aceptación ciega.
+5. **Método seleccionado y validación:** el adaptador de septiembre usa la FFT NumPy global para producir candidatos locales revisables; el máximo no es por sí solo aprobación científica. FFT/NCC experimental del PR #9 no es una puerta obligatoria, y no se requieren palmadas.
 6. **Seguridad:** originales inmutables, scratch suficiente, mínimo privilegio, publicación atómica/releíble, estados separados y reintentos controlados.
 7. **Pruebas:** desfases positivos/negativos/cero, grandes, sin audio común, ruido, distintos niveles/duraciones, PCM/H.264 en AVI, timestamps erráticos, juegos múltiples, colisiones, errores de lectura, recuperación y concurrencia.
 8. **QC humano previo a escala:** comparar inicio/medio/final con criterios documentados. Nunca dejar que un estado técnico promocione automáticamente resultados científicos.
 
 ## 11. Pendientes y próximos hitos
 
-- **[CI / OPEN]** PR #9 en Draft, SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`: 309 PASS Windows; 308 PASS + 1 SKIP Ubuntu. La revisión inicial del código no detectó regresión matemática reproducible; falta medir recursos reales y validar audio local sin activar el pipeline. Modo global sigue desactivado por defecto.
-- **[FIELD REPORT / OPEN]** **PR #10 ya produjo los tres MP4 locales reales con el método de septiembre.** Ahora resta únicamente abrir la composición lateral existente y revisar sincronía de comienzo, mitad y final. No pedir palmadas ni anclas manuales; no repetir FFT ni pruebas de infraestructura.
+- **[CI / FIELD REPORT]** PR #9 sigue Draft (SHA `5cbd7ddad928d36b774476f0a34e28317fff5bc4`): 309 PASS Windows y 308 PASS + 1 SKIP Ubuntu en CI sintética. Ya hubo dos diagnósticos de audio real controlados; ambos rechazaron candidatos por puertas NCC. No tratarlos como ensayos pendientes ni convertirlos en requisito del adaptador de septiembre.
+- **[FIELD REPORT / MANUAL / OPEN]** PR #10 generó tres MP4 locales y el investigador ya los inspeccionó, informando sincronía visual perfecta. Sigue pendiente registrar QC formal de inicio/mitad/final, tolerancias y disposición por caso. No pedir palmadas ni repetir barridos NCC.
 - **[OPEN]** Caracterizar errores H.264 y timestamps que impacten realmente la salida, sin remux innecesario.
-- **[FIELD REPORT / OPEN]** **Tres MP4 locales ya generados por Work;** falta exclusivamente la revisión científica visual/auditiva de comienzo, mitad y final, antes de cualquier `QCApproved`. La generación por sí sola no equivale a validación.
+- **[FIELD REPORT / OPEN]** La inspección visual preliminar fue comunicada como positiva; no existe registro público de evaluación formal de deriva, tolerancias, inicio/mitad/final y aprobación del caso. Ni MP4 exportados ni inspección visual breve equivalen a `QCApproved`.
 - **[OPEN]** Establecer tolerancia de desfase/deriva, tasas de fallos y criterios de aprobación.
 - **[OPEN]** Adaptar límites de recursos para grabaciones reales, hacer ensayo end-to-end, definir carpetas con sesión/juego, permisos NAS y autorización explícita.
 - **[OPEN]** Integrar generador `delivery.v2` con herramienta de copia de FURG cuando haya acceso.
-- **[OPEN]** Emitir **README FINAL** con arquitectura y diagrama, procedimiento reproducible, parámetros justificados, matrices de pruebas reales, decisiones y rechazos, recuperación y guía de adaptación a otra investigación. Solo al completar los hitos anteriores (o documentar claramente excepciones aprobadas); nunca simular que ya está al 100 %.
+- **[OPEN]** El README final de lógica algorítmica ya existe en PR #10. Un README de producto/release operacional requiere evidencia científica formal, publicación segura y citación aprobada. No equiparar documentación final de matemática con despliegue real.
 
 ## 12. Fuentes y referencias permanentes
 
@@ -338,6 +338,8 @@ Antes de adaptar a otra cohorte, cámara o protocolo, documentar explícitamente
 ---
 
 ### Registro de revisiones
+
+- **Revisión documental · 2026-11-01** — Se cotejaron el script de septiembre fijado `0a143d33862a274e3e9c8ed25495121218a9acac`, PR #10 y reporte manual. Se conciliaron pendientes obsoletos sin inventar QC y se retiró inventario operacional de la arquitectura pública; ningún nuevo test científico ni cambio de código.
 
 - **v1.1 · 2026-10-31** — README final de la lógica FFT publicado en el PR #10. Se confirma que la automatización INBOX/RAW/SYNCED es un proyecto privado y pendiente, sin afirmar su despliegue.
 

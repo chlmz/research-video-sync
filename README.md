@@ -4,7 +4,7 @@
 
 **A reproducible research-software project for synchronizing dual-camera mother–child interaction recordings**, developed in the context of the **2019 Rio Grande Birth Cohort (Coorte de Nascimentos de Rio Grande 2019)**.
 
-**Status: research preview / documentation in progress — NOT approved for unattended real-data processing.** The source repository is public, but actual cohort recordings, internal network details and operational credentials are private. A verified field-scientific synchronization and a released package are still pending.
+**Status: research preview / documentation in progress — NOT approved for unattended real-data processing.** The source repository is public, but actual cohort recordings, internal network details and operational credentials are private. The investigator reported successful visual synchronization of one local pilot; documented multi-point QC, formal approval and a released package remain pending.
 
 > **Important for humans and AI agents:** the historic `pipeline_rg2019.py` entrypoint has older **live INBOX → RAW move semantics** and must **not** be run on the current field NAS layout. The newer safeguarded executor is deliberately **synthetic-only**. Follow the [safe quickstart](docs/product/GETTING_STARTED.md), not the old deployment instructions.
 
@@ -133,11 +133,11 @@ The following is **as verified for commit `a21279d6c7313d65eb1239e70f1bae3ae62b1
 | Isolated local synthetic processing, two MP4s, immutable results and recovery | Implemented; real execution blocked |
 | Side-by-side encoding | Existing API, **not integrated into safe end-to-end flow** |
 | Live field source admission, automatic NAS publication, daily scheduler | **Not authorized/implemented as a safe production path** |
-| Real recording scientific alignment | **Not yet validated**; first controlled pair returned 0/7 confident coarse windows |
+| Real recording scientific alignment | Earlier windowed/NCC diagnostics rejected candidates. A later September-adapter pilot was reported visually synchronized by the investigator; formal beginning/middle/end QC and scientific acceptance remain pending. |
 | Human scientific QC and release authorization | **NotApproved / pending** |
 | Windows/Ubuntu CI at this SHA | [Actions run 41157402895](https://github.com/chlmz/research-video-sync/actions/runs/41157402895): Windows **296 passed**, Ubuntu **295 passed / 1 Windows-specific skip**; no failures. **Synthetic only** |
 
-An actual pair from the cohort was inspected under private controls, with original/copy hashes preserved and visible video reportedly playable. The old estimator returned no confidence and appropriately refused to generate a synchronized result. The newer optional **Pearson/NCC global mode was run twice** on private diagnostic audio but accepted no candidate. The researcher then requested a **separate September-style adapter** instead of further NCC threshold tuning or palmadas; a subsequent controlled run reported three exported local **QC candidate** videos from that adapter. Their alignment has **not** yet been assessed. **Do not treat this as evidence that the data are invalid, or quietly force an offset.** The developer journal keeps the error history so it cannot be forgotten.
+An actual pair from the cohort was inspected under private controls, with original/copy hashes preserved and visible video reportedly playable. The old estimator returned no confidence and appropriately refused to generate a synchronized result. The newer optional **Pearson/NCC global mode was run twice** on private diagnostic audio but accepted no candidate. The researcher then requested a **separate September-style adapter** instead of further NCC threshold tuning or palmadas; a subsequent controlled run reported three exported local **QC candidate** videos from that adapter. The investigator subsequently reported **perfect visual synchronization** after viewing the candidates; the reviewed instants, residual error and drift have not been documented as formal QC. **Do not treat this as evidence that the data are invalid, or quietly force an offset.** The developer journal keeps the error history so it cannot be forgotten.
 
 ### Experimental wide-range FFT change (separate draft PR)
 
@@ -145,7 +145,7 @@ An actual pair from the cohort was inspected under private controls, with origin
 
 ### September 2026 compatibility adapter for the current research layout
 
-[Draft PR #10](https://github.com/chlmz/research-video-sync/pull/10) adds a self-contained, Windows-compatible entry point [`sync_september_field.py`](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/sync_september_field.py), preserving September's **whole-audio NumPy FFT raw maximum and three-MP4 export** while recognizing explicitly reviewed sessions and numbered games nested across camera folders. See the [usage and limitations](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/docs/SEPTEMBER_FIELD_ADAPTER.md). The adapter is deliberately **local-only, candidate-for-QC**, not a replacement for verified delivery or a production scheduler. **Work reported that it generated all three local MP4 candidates for one real paired recording; field-scientific alignment remains unverified pending review of the side-by-side.**
+[Draft PR #10](https://github.com/chlmz/research-video-sync/pull/10) adds a self-contained, Windows-compatible entry point [`sync_september_field.py`](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/sync_september_field.py), preserving September's **whole-audio NumPy FFT raw maximum and three-MP4 export** while recognizing explicitly reviewed sessions and numbered games nested across camera folders. See the [usage and limitations](https://github.com/chlmz/research-video-sync/blob/codex/gpis-september-field-adapter/docs/SEPTEMBER_FIELD_ADAPTER.md). The adapter is deliberately **local-only, candidate-for-QC**, not a replacement for verified delivery or a production scheduler. **Work reported three local MP4 candidates for one real paired recording and the investigator subsequently reported visually perfect synchronization; formal multi-point scientific QC is still pending.**
 
 ## Repository map
 

@@ -39,7 +39,7 @@ The final pipeline must account for all five. At reference SHA, the newer safe p
 - Preserve all source bytes. Never mutate/readmit originals by treating a copy completion flag as scientific receipt.
 - Manifest `rg2019.delivery.v2`: separate independent session UUID and delivery identity; exact selected paths, size and hash; sidecar outside its own declared scope; explicitly documented exclusions. A UUIDv5 integrity identifier **is not a sender signature**.
 - `ReceptionVerified` does **not** imply `QCApproved`.
-- Do not accept unqualified maximum FFT correlation as a scientific offset. The new global-search stage is **implemented in [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9)** but opt-in/unmerged. It proposes candidates only; disjoint-window agreement and scientific QC are required. Never reuse a synthetic CI pass as evidence of correct real-media offset.
+- Do not equate an unqualified FFT peak with a **scientifically approved** offset. The selected [September adapter (draft PR #10)](https://github.com/chlmz/research-video-sync/pull/10) intentionally uses the historical full-audio NumPy FFT maximum **to generate local candidates for visual QC**, not automatic approval. The alternative gated FFT/NCC design in [draft PR #9](https://github.com/chlmz/research-video-sync/pull/9) remains experimental and **is not a prerequisite**. Do not reinstate mandatory claps/manual acoustic anchors or repeated NCC threshold tuning. Synthetic CI alone cannot validate field synchrony.
 - Do not change or bypass thresholds merely to make a difficult sample pass.
 - Do not silently transform an AVI into MP4 by renaming it; use measured media information to decide on remux/transcoding.
 - No automatic scheduling or live NAS publication until explicit operational + scientific acceptance.
@@ -115,7 +115,7 @@ Do not insert guessed answers into source code; use explicit options, unknown st
 - Historical copy JSON: successful local copy does not prove Synology Drive delivery; size coincidence cannot prove identity.
 - Original Python live script: can move INBOX to RAW, incompatible with newer deep session trees and safe non-destructive preproduction.
 - Original Windows long paths: required compact v2 result layout and explicit path preflight.
-- Real pilot October: videos reportedly visually acceptable but estimator 0/7 valid coarse windows; do not downgrade QC or assume videos are corrupt.
+- Real pilot October: the earlier windowed/NCC route failed its confidence gates. Later the September adapter reportedly exported three local MP4s successfully, and the investigator reported visually perfect synchronization. Preserve both historically, but do not infer formal multi-point QC or NAS publication.
 - Safe synthetic preproduction: deliberately blocked from real media, not proof of production deployment.
 
 ## Change-management rule for this guide
