@@ -172,7 +172,17 @@ notepad config.json
 The installed `research-video-sync` command and `python -m rg2019` are equivalent. The
 `pipeline_rg2019.py` script remains available for existing scheduled tasks.
 
-`--setup` creates `config.json` inside the target follow-up directory, sets `followup_root`, and creates the configured folder layout. By default, setup uses the packaged example config. If `--config-path SOURCE` is supplied, its settings are copied into the target's `config.json` (with `followup_root` set to the target); the source file is left unchanged. `--config` and `--config_path` are aliases. If a destination config already exists, setup asks before replacing it.
+`--setup` creates `config.json` inside the target follow-up directory, sets `followup_root`, and creates the configured folder layout. By default, setup uses the packaged example config. If `--config-path SOURCE` is supplied, its settings are copied into the target's `config.json` (with `followup_root` set to the target); the source file is left unchanged. All generated configs use ordered `pattern` alias lists: legacy `mom_pattern` / `child_pattern` values become `{"mom": ["..."], "child": ["..."]}`, preserving their matching strings and output suffixes. `--config` and `--config_path` are aliases. If a destination config already exists, setup asks before replacing it.
+
+Setup conversion opts the generated config into multi-camera processing, including shared-overlap trimming.
+If the target already contains processed participants, review the generated config and use `--reprocess ID`
+to migrate those participants; normal runs will not reuse legacy outputs silently.
+Loading an existing legacy config without running setup still preserves the old behavior.
+
+If a test installation still generates the old fields, reinstall from the updated checkout using
+`python -m pip install .`, then run `python -m rg2019 --setup ".\test-new-pattern"`.
+Use the same Python environment for both commands. The module form avoids an older executable elsewhere
+on `PATH`; an existing config is not upgraded merely by running the pipeline.
 
 Run without arguments to process the current directory, or pass a directory path to process that directory:
 

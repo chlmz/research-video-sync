@@ -182,6 +182,12 @@ Cameras synchronize in config order, then all outputs use the shared overlap. Se
 [README multi-camera setup](../README.md#configuring-two-three-or-more-cameras) for aliases,
 custom names such as `dad`, grid examples, and migration from the former TeenCam scripts.
 
+`--setup` always writes `pattern` alias lists, even when `--config-path` points to a legacy
+config. Legacy `mom_pattern` / `child_pattern` values become `mom` / `child` lists without
+changing the source config. The generated config uses shared-overlap trimming; migrating
+participants already processed under a legacy config requires `--reprocess ID`.
+Normal runs still accept legacy configs unchanged.
+
 By default, two pairs synchronize/encode concurrently after coordinated readiness checks and promotion.
 Use `--workers 1` for sequential processing or `--workers N` to override `max_parallel_pairs` for a run.
 Dry runs stay sequential and never write checkpoints. Additional workers can increase CPU, memory,

@@ -252,6 +252,33 @@ def test_setup_defaults_use_unified_pattern_mapping(tmp_path):
     assert config.load(path).camera_patterns["mom"] == ["_mom", "_mum"]
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_setup_converts_source_config_to_pattern_alias_lists(tmp_path, legacy):
+    source = tmp_path / "source.json"
+    settings = {
+        "followup_root": "old root",
+        "stability_minutes": 17,
+        "create_side_by_side": False,
+    }
+    if legacy:
+        settings.update({"mom_pattern": "_mum", "child_pattern": "_kid"})
+    else:
+        settings["pattern"] = {"dad": "_dad", "room": ["_room", "_wide"]}
+    original = json.dumps(settings)
+    source.write_text(original, encoding="utf-8")
+    target = tmp_path / "new"
+    assert cli.main(["--setup", str(target), "--config", str(source)]) == 0
+    data = json.loads((target / "config.json").read_text(encoding="utf-8"))
+    assert data["pattern"] == (
+        {"mom": ["_mum"], "child": ["_kid"]} if legacy else
+        {"dad": ["_dad"], "room": ["_room", "_wide"]}
+    )
+    assert "mom_pattern" not in data and "child_pattern" not in data
+    assert data["stability_minutes"] == 17 and data["create_side_by_side"] is False
+    assert source.read_text(encoding="utf-8") == original
+    assert config.load(target / "config.json").pattern == data["pattern"]
+
+
 def test_shared_inbox_keeps_each_participants_optional_cameras(tmp_path, monkeypatch):
     cfg = camera_config(tmp_path, {"dad": "_dad", "teen": "_teen", "room": "_room"})
     cfg.inbox_dir.mkdir()

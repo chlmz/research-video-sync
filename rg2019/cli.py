@@ -68,7 +68,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def setup_project(followup_root: Path, config_path: Path, overwrite: bool = False,
                   source_config: Path | None = None) -> Path:
-    """Copy config settings into the follow-up root and initialize its folder layout."""
+    """Write config settings in the current format and initialize the folder layout."""
     if config_path.exists() and not overwrite:
         raise FileExistsError(f"config already exists: {config_path}; refusing to overwrite it")
 
@@ -78,6 +78,10 @@ def setup_project(followup_root: Path, config_path: Path, overwrite: bool = Fals
     if not isinstance(data, dict):
         raise cfgmod.ConfigError(f"Config must be a JSON object ({template_path})")
     data["followup_root"] = str(followup_root.expanduser().resolve())
+    cfg = cfgmod.from_dict(data)
+    data["pattern"] = cfg.camera_patterns
+    data.pop("mom_pattern", None)
+    data.pop("child_pattern", None)
     cfg = cfgmod.from_dict(data)
 
     cfg.followup_root.mkdir(parents=True, exist_ok=True)
@@ -403,6 +407,7 @@ def _main(argv=None) -> int:
             print(f"SETUP ERROR: {exc}", file=sys.stderr)
             return 3
         print(f"Created {config_path} and initialized followup folders under {followup_root}")
+        print("Camera settings use ordered pattern alias lists; review their names and order before processing.")
         print("Review the generated config and edit tool paths if needed before running the pipeline.")
         return 0
     if args.config is not None:
