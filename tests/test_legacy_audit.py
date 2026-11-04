@@ -11,6 +11,7 @@ trimmed, by |s_c - s_m|, so both files begin at the same real-world event.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -26,7 +27,7 @@ RATE = 100  # low rate keeps the legacy pure-python loops fast; sign logic is ra
 
 
 def heredocs(script: str) -> list[str]:
-    text = (ROOT / script).read_text()
+    text = (ROOT / script).read_text(encoding="utf-8")
     return re.findall(r"<<'PYEOF'\n(.*?)\nPYEOF", text, flags=re.S)
 
 
@@ -99,7 +100,8 @@ def test_legacy_sync_videos_script_trims_wrong_camera(tmp_path, label, ms, cs):
     assert trimmed != correct_trim(ms, cs)
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None,
+                    reason="requires POSIX bash argument handling")
 def test_legacy_bash_set_e_post_increment_from_zero_aborts():
     """Bash `set -e` + `((COUNTER++))`: the arithmetic command's exit status is 1 when the
     expression evaluates to 0, and post-increment evaluates to the OLD value (0 on first use).
@@ -113,6 +115,6 @@ def test_legacy_bash_set_e_post_increment_from_zero_aborts():
 
 
 def test_legacy_scripts_use_the_risky_counter_pattern():
-    text = (ROOT / "sync_research_project.sh").read_text()
+    text = (ROOT / "sync_research_project.sh").read_text(encoding="utf-8")
     assert "set -e" in text
     assert all(f"(({c}++))" in text for c in ("PROCESSED", "SKIPPED", "FAILED"))
