@@ -52,7 +52,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--reprocess", action="append", metavar="ID",
                     help="recompute this participant from RAW; previous outputs are archived, not deleted")
     ap.add_argument("--manual-offset", type=float, metavar="SECONDS",
-                    help="with exactly one --participant: use this reviewed offset (>0 trims mom, <0 trims child)")
+                    help="with exactly one --participant and two cameras: reviewed offset "
+                         "(>0 trims first camera, <0 trims second)")
     ap.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO"])
     ap.add_argument("--workers", type=int, metavar="N",
                     help="maximum simultaneous video pairs (overrides max_parallel_pairs)")
@@ -122,7 +123,7 @@ def matching_video_files(cfg: cfgmod.Config) -> list[Path]:
     matches = []
     for root in (cfg.inbox_dir, cfg.raw_dir):
         for job in discover_jobs(cfg, root).values():
-            matches.extend(job.mom + job.child + job.both)
+            matches.extend(job.files + job.both)
     return matches
 
 
@@ -160,15 +161,15 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
             reasons = []
             if pid is None:
                 reasons.append(f"no unique participant ID matching {cfg.participant_id_regex!r}")
-            if not (cfg.mom_pattern.lower() in path.stem.lower()
-                    or cfg.child_pattern.lower() in path.stem.lower()):
-                reasons.append(f"neither mother pattern {cfg.mom_pattern!r} "
-                               f"nor child pattern {cfg.child_pattern!r} matches")
+            if not cfg.matching_roles(path.stem):
+                reasons.append(
+                    f"no camera pattern {cfg.pattern!r} matches" if cfg.pattern is not None else
+                    f"neither mother pattern {cfg.mom_pattern!r} nor child pattern {cfg.child_pattern!r} matches")
             if reasons:
                 unmatched_videos[path] = "; ".join(reasons)
         for pid, job in discover_jobs(cfg, root).items():
             jobs_by_pid.setdefault(pid, []).append(job)
-            videos_by_pid.setdefault(pid, []).extend(job.mom + job.child + job.both)
+            videos_by_pid.setdefault(pid, []).extend(job.files + job.both)
         for participant_dir in root.iterdir():
             if participant_dir.is_dir():
                 if valid_participant_id(cfg, participant_dir.name):
@@ -210,16 +211,16 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
         if discovery is None and outcome.status != S.SUCCESS:
             no_match[pid] = (outcome.message or "participant source folder is missing", files)
         if discovery is not None and discovery.problem is None:
-            matched = sorted(discovery.mom + discovery.child, key=lambda p: p.name.lower())
+            matched = sorted(discovery.files, key=lambda p: p.name.lower())
             if outcome.kind == "skipped" and outcome.status == S.SUCCESS:
                 already_synced[pid] = matched
             elif outcome.kind == "dry":
                 will_sync[pid] = matched
             unmatched = [path for path in videos_by_pid.get(pid, []) if path not in matched]
             if unmatched:
-                no_match[pid] = ("video does not match the configured mother or child pattern", unmatched)
+                no_match[pid] = ("video does not match a configured camera pattern", unmatched)
         elif discovery is not None:
-            no_match[pid] = (outcome.message or "no unique mother/child video pair", videos_by_pid.get(pid, []))
+            no_match[pid] = (outcome.message or "no unique required camera set", videos_by_pid.get(pid, []))
 
         unsupported = []
         source_dirs = {p.parent for p in files} | set(folders)
@@ -228,7 +229,7 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
                 if (not path.is_file() or is_junk_file(path.name) or is_transit_file(path.name)):
                     continue
                 stem = path.stem.lower()
-                if ((cfg.mom_pattern.lower() in stem or cfg.child_pattern.lower() in stem)
+                if (cfg.matching_roles(stem)
                         and path.suffix.lower() not in cfg.video_extensions):
                     unsupported.append(path)
         if unsupported:
@@ -236,7 +237,7 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
 
         if outcome.status != "WOULD_PROCESS" and outcome.status not in (
                 S.SUCCESS, S.MISSING_FILES, S.AMBIGUOUS_FILES, S.INVALID_ID):
-            blocked_files = (sorted(discovery.mom + discovery.child, key=lambda p: p.name.lower())
+            blocked_files = (sorted(discovery.files, key=lambda p: p.name.lower())
                              if discovery is not None and discovery.problem is None else files)
             blocked[pid] = (f"{outcome.status}: {outcome.message}".rstrip(": "),
                             blocked_files)
@@ -504,7 +505,7 @@ def _main(argv=None) -> int:
         videos_by_participant: dict[str, list[Path]] = {}
         for root in (cfg.inbox_dir, cfg.raw_dir):
             for pid, job in discover_jobs(cfg, root).items():
-                videos_by_participant.setdefault(pid, []).extend(job.mom + job.child + job.both)
+                videos_by_participant.setdefault(pid, []).extend(job.files + job.both)
         unstable = [outcome for outcome in summary.outcomes if outcome.status == S.WAITING_FOR_STABILITY]
         log.info("Unstable videos (%d participant folder(s)):", len(unstable))
         for outcome in unstable:

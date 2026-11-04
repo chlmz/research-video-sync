@@ -116,6 +116,7 @@ class StateStore:
         so running the pipeline many times can never create duplicate rows)."""
         self._require_root()
         rows = []
+        columns = CSV_COLUMNS + (["camera_sources", "camera_offsets"] if self.cfg.pattern is not None else [])
         for pid in self.all_ids():
             try:
                 st = json.loads(self.path(pid).read_text(encoding="utf-8"))
@@ -125,7 +126,7 @@ class StateStore:
                 continue
             src, sync = st.get("sources", {}), st.get("sync", {})
             mom, child = src.get("mom", {}), src.get("child", {})
-            rows.append({
+            row = {
                 "participant_id": pid, "status": st.get("status"),
                 "mom_source": mom.get("name", ""), "child_source": child.get("name", ""),
                 "mom_sha256": mom.get("sha256", ""), "child_sha256": child.get("sha256", ""),
@@ -136,10 +137,14 @@ class StateStore:
                 "raw_promoted_at": st.get("raw_promoted_at") or "",
                 "sync_completed_at": st.get("sync_completed_at") or "",
                 "last_checked_at": st.get("last_checked_at") or "",
-                "error_message": st.get("message") if st.get("status") != "SUCCESS" else ""})
+                "error_message": st.get("message") if st.get("status") != "SUCCESS" else ""}
+            if self.cfg.pattern is not None:
+                row["camera_sources"] = json.dumps({role: source.get("name") for role, source in src.items()})
+                row["camera_offsets"] = json.dumps(sync.get("offsets", {}))
+            rows.append(row)
         import io
         buf = io.StringIO()
-        w = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, lineterminator="\r\n")
+        w = csv.DictWriter(buf, fieldnames=columns, lineterminator="\r\n")
         w.writeheader()
         w.writerows(rows)
         atomic_write_text(self.csv, buf.getvalue())

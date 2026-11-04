@@ -1,6 +1,7 @@
 """Configuration loading and validation (pathlib only, Windows-first)."""
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 from dataclasses import dataclass, field, fields
@@ -52,6 +53,7 @@ class Config:
     participant_id_regex: str = r"^ID\d{4,8}$"
     mom_pattern: str = "_mom"
     child_pattern: str = "_child"
+    pattern: dict[str, str | list[str]] | None = None
     video_description: str | None = None
     video_extensions: list[str] = field(default_factory=lambda: [".mp4", ".avi", ".mov", ".mkv"])
     require_ready_marker: bool = False
@@ -68,6 +70,21 @@ class Config:
     ffprobe: str = "ffprobe"
     sync: SyncParams = field(default_factory=SyncParams)
     encode: EncodeParams = field(default_factory=EncodeParams)
+
+    @property
+    def camera_patterns(self) -> dict[str, list[str]]:
+        if self.pattern is None:
+            return {"mom": [self.mom_pattern], "child": [self.child_pattern]}
+        return {role: [labels] if isinstance(labels, str) else labels
+                for role, labels in self.pattern.items()}
+
+    def matching_roles(self, stem: str) -> list[str]:
+        """Case-insensitive substrings, or filename-stem globs when wildcards are present."""
+        stem = stem.casefold()
+        return [role for role, labels in self.camera_patterns.items()
+                if any(fnmatch.fnmatchcase(stem, label.casefold())
+                       if any(char in label for char in "*?[") else label.casefold() in stem
+                       for label in labels)]
 
     # ---- resolved directories -------------------------------------------------
     def _dir(self, name: str) -> Path:
@@ -150,6 +167,21 @@ def _from_dict(data: dict[str, Any], path_cls: type[PurePath]) -> Config:
         raise ConfigError("mom_pattern and child_pattern must be non-empty")
     if cfg.mom_pattern.lower() == cfg.child_pattern.lower():
         raise ConfigError("mom_pattern and child_pattern must differ")
+    if cfg.pattern is not None:
+        if not isinstance(cfg.pattern, dict) or len(cfg.pattern) < 2:
+            raise ConfigError("pattern must be an ordered object containing at least two cameras")
+        seen_roles: set[str] = set()
+        for role, labels in cfg.pattern.items():
+            if (not isinstance(role, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}", role)
+                    or role.casefold() in {"side_by_side", "con", "prn", "aux", "nul"}
+                    or re.fullmatch(r"(?:com|lpt)[1-9]", role, re.I)
+                    or role.casefold() in seen_roles):
+                raise ConfigError("pattern keys must be unique filename-safe camera names (not reserved names)")
+            seen_roles.add(role.casefold())
+            values = [labels] if isinstance(labels, str) else labels
+            if (not isinstance(values, list) or not values
+                    or any(not isinstance(value, str) or not value.strip() for value in values)):
+                raise ConfigError(f"pattern.{role} must be a non-empty string or list of non-empty strings")
     if cfg.video_description is not None:
         if (not isinstance(cfg.video_description, str)
                 or len(cfg.video_description) > 80

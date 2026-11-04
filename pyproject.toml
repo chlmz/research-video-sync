@@ -19,11 +19,11 @@ test = ["pytest>=7", "pytest-cov>=7", "build>=1", "setuptools>=68", "wheel"]
 
 [project.scripts]
 research-video-sync = "rg2019.cli:main"
-research-video-sync-teencam = "sync_inbox:main"
+research-video-sync-teencam = "rg2019.cli:main"
 
 [tool.setuptools]
 packages = ["rg2019"]
-py-modules = ["pipeline_rg2019", "sync_inbox", "sync_three_cameras_v2"]
+py-modules = ["pipeline_rg2019"]
 
 [tool.setuptools.package-data]
 rg2019 = ["config.example.json"]
