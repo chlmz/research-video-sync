@@ -43,6 +43,32 @@ current directory. Originals are moved into `01_RAW`, synced videos are written 
 `02_SYNCED`, and status/logs are stored in `99_LOGS_QC`, under the target folder with
 the default configuration.
 
+## Optional TeenCam two- or three-camera sync
+
+For the separate TeenCam batch workflow, place each participant's parent, teen, and optional third-camera
+recordings together in `00_INBOX`. The filenames must start with the participant ID and
+include a recognizable camera label (`parent/mum/mom view point`, `teen view point`, or
+`third camera`); the configured `mom_pattern` and `child_pattern` are also accepted. The configured
+`participant_id_regex` must accept the ID.
+
+Run a preview first, then add `--apply` only after checking the detected cameras and offsets:
+
+```powershell
+research-video-sync-teencam --root "D:\RG2019_CAMERAS\FOLLOWUP_2026" --config "D:\RG2019_CAMERAS\FOLLOWUP_2026\config.json"
+research-video-sync-teencam --root "D:\RG2019_CAMERAS\FOLLOWUP_2026" --config "D:\RG2019_CAMERAS\FOLLOWUP_2026\config.json" --apply
+```
+
+For a participant already in `01_RAW`, run the per-participant command directly instead:
+
+```powershell
+python -m sync_three_cameras_v2 --config "D:\RG2019_CAMERAS\FOLLOWUP_2026\config.json" --id "#2181"
+```
+
+This workflow leaves originals untouched and writes one synchronized file per detected camera
+under `02_SYNCED_3CAM\<participant ID>`. When enabled in the config, it also creates a parent/teen
+side-by-side video. Files from a participant must be in one shared folder; ambiguous or duplicate
+camera sets are skipped. This is separate from the daily `research-video-sync` pipeline.
+
 ## 1. Prerequisites and installation
 
 For a step-by-step command-line walkthrough, see the [beginner's guide](docs/COMMAND_LINE_GUIDE.md).
