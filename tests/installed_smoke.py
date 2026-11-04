@@ -45,6 +45,17 @@ def main() -> None:
         assert converted["pattern"] == {"mom": ["_mum"], "child": ["_kid"]}
         assert converted["require_all"] is False
         assert json.loads(legacy.read_text(encoding="utf-8"))["require_all"] is True
+        target = root / "overrides"
+        assert cli.main([
+            "--setup", str(target), "--inbox", "incoming", "--sync-sample-rate", "16000",
+            "--encode-crf", "25", "--no-require-approval",
+            "--pattern", '{"dad":["_dad"],"room":["_room"]}',
+        ]) == 0
+        cfg = config.load(target / "config.json")
+        assert cfg.inbox == "incoming" and (target / "incoming").is_dir()
+        assert cfg.sync.sample_rate == 16000 and cfg.encode.crf == 25
+        assert cfg.require_approval is False
+        assert cfg.camera_patterns == {"dad": ["_dad"], "room": ["_room"]}
     print("Installed package: alias-list setup, require-all flags and legacy configs passed.")
 
 

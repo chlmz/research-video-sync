@@ -15,6 +15,8 @@ import logging
 import signal
 import sys
 import threading
+from dataclasses import asdict, fields
+from functools import partial
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +35,77 @@ from rg2019.state import RunLock, StateStore
 from rg2019.statuses import S
 
 log = logging.getLogger("rg2019")
+
+
+def _json_value(text: str, *, key: str):
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError(f"invalid JSON: {exc.msg}") from exc
+    if key == "pattern" and value is None:
+        return value
+    if key == "video_extensions":
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise argparse.ArgumentTypeError(f"{key} must be a JSON list of strings")
+    elif not isinstance(value, dict):
+        raise argparse.ArgumentTypeError(f"{key} must be a JSON object")
+    return value
+
+
+def _config_flags(ap: argparse.ArgumentParser) -> None:
+    defaults = cfgmod.Config(followup_root=Path("."))
+    for cls, instance, prefix in [
+        (cfgmod.Config, defaults, ""),
+        (cfgmod.SyncParams, defaults.sync, "sync."),
+        (cfgmod.EncodeParams, defaults.encode, "encode."),
+    ]:
+        for field in fields(cls):
+            key = prefix + field.name
+            value = getattr(instance, field.name)
+            flag = "--" + key.replace(".", "-").replace("_", "-")
+            dest = "override_" + key.replace(".", "__")
+            options = {"dest": dest, "default": argparse.SUPPRESS,
+                       "help": f"override config {key} (saved with --setup)"}
+            if isinstance(value, bool):
+                options["action"] = argparse.BooleanOptionalAction
+            elif field.name in {"pattern", "sync", "encode", "video_extensions"} and not prefix:
+                options["type"] = partial(_json_value, key=field.name)
+                options["metavar"] = "JSON"
+            elif field.name == "video_description" and not prefix:
+                options["type"] = lambda text: None if text == "null" else text
+            else:
+                options["type"] = Path if isinstance(value, Path) else type(value)
+            aliases = [flag]
+            if key == "max_parallel_pairs":
+                aliases.append("--workers")
+            ap.add_argument(*aliases, **options)
+
+
+def config_overrides(args: argparse.Namespace) -> dict:
+    overrides = {}
+    # Whole nested objects are applied before individual nested settings.
+    for name, value in sorted(vars(args).items(), key=lambda item: "__" in item[0]):
+        if not name.startswith("override_"):
+            continue
+        keys = name.removeprefix("override_").split("__")
+        if len(keys) == 1:
+            overrides[keys[0]] = value
+        else:
+            group = overrides.setdefault(keys[0], {})
+            if not isinstance(group, dict):
+                raise cfgmod.ConfigError(f"{keys[0]} override must be a JSON object")
+            group[keys[1]] = value
+    return overrides
+
+
+def _apply_overrides(data: dict, overrides: dict) -> dict:
+    result = dict(data)
+    for key, value in overrides.items():
+        if key in {"sync", "encode"} and isinstance(value, dict):
+            result[key] = {**result.get(key, {}), **value}
+        else:
+            result[key] = value
+    return result
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -55,22 +128,21 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="with exactly one --participant and two cameras: reviewed offset "
                          "(>0 trims first camera, <0 trims second)")
     ap.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO"])
-    ap.add_argument("--workers", type=int, metavar="N",
-                    help="maximum simultaneous video pairs (overrides max_parallel_pairs)")
-    ap.add_argument("--require-all", action=argparse.BooleanOptionalAction, default=None,
-                    help="require every configured camera; --no-require-all allows any two or more "
-                         "(overrides config; with --setup saves the setting)")
+    _config_flags(ap)
     ap.add_argument("--version", action="version", version=f"pipeline_rg2019 {__version__}")
     args = ap.parse_args(argv)
     if args.setup is not None and args.directory is not None:
         ap.error("DIRECTORY cannot be combined with --setup; use --setup DIRECTORY")
+    args.workers = getattr(args, "override_max_parallel_pairs", None)
+    args.require_all = getattr(args, "override_require_all", None)
     if args.workers is not None and args.workers < 1:
         ap.error("--workers must be a positive integer")
     return args
 
 
 def setup_project(followup_root: Path, config_path: Path, overwrite: bool = False,
-                  source_config: Path | None = None, require_all: bool | None = None) -> Path:
+                  source_config: Path | None = None, require_all: bool | None = None,
+                  overrides: dict | None = None) -> Path:
     """Write config settings in the current format and initialize the folder layout."""
     if config_path.exists() and not overwrite:
         raise FileExistsError(f"config already exists: {config_path}; refusing to overwrite it")
@@ -83,6 +155,7 @@ def setup_project(followup_root: Path, config_path: Path, overwrite: bool = Fals
     data["followup_root"] = str(followup_root.expanduser().resolve())
     if require_all is not None:
         data["require_all"] = require_all
+    data = _apply_overrides(data, overrides or {})
     cfg = cfgmod.from_dict(data)
     data["pattern"] = cfg.camera_patterns
     data["require_all"] = cfg.require_all
@@ -398,8 +471,14 @@ def main(argv=None) -> int:
 
 def _main(argv=None) -> int:
     args = parse_args(argv)
+    try:
+        overrides = config_overrides(args)
+    except cfgmod.ConfigError as exc:
+        print(f"CONFIG ERROR: {exc}", file=sys.stderr)
+        return 3
     if args.setup is not None:
-        followup_root = args.setup.expanduser().resolve()
+        followup_root = Path(overrides.get("followup_root", args.setup)).expanduser().resolve()
+        overrides["followup_root"] = str(followup_root)
         config_path = followup_root / "config.json"
         overwrite = config_path.exists()
         if overwrite and not confirm_config_overwrite(config_path):
@@ -409,6 +488,7 @@ def _main(argv=None) -> int:
             config_path = setup_project(
                 followup_root, config_path, overwrite=overwrite, source_config=args.config,
                 require_all=args.require_all,
+                overrides=overrides,
             )
         except (OSError, ValueError, cfgmod.ConfigError) as exc:
             print(f"SETUP ERROR: {exc}", file=sys.stderr)
@@ -433,10 +513,11 @@ def _main(argv=None) -> int:
         return 3
     if args.config is None:
         cfg.followup_root = run_directory
-    if args.workers is not None:
-        cfg.max_parallel_pairs = args.workers
-    if args.require_all is not None:
-        cfg.require_all = args.require_all
+    try:
+        cfg = cfgmod.from_dict(_apply_overrides(asdict(cfg), overrides))
+    except cfgmod.ConfigError as exc:
+        print(f"CONFIG ERROR: {exc}", file=sys.stderr)
+        return 3
     if args.manual_offset is not None and not (args.participant and len(args.participant) == 1):
         print("CONFIG ERROR: --manual-offset requires exactly one --participant", file=sys.stderr)
         return 3
