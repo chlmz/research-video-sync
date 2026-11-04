@@ -50,14 +50,15 @@ the default configuration.
 All synchronization and merging runs through **`research-video-sync`** (or `python -m rg2019`),
 with the normal approval, stability checks, RAW promotion, QC, locking, and resume behavior.
 Use `--setup` as above to create a new config. In an existing config, replace `mom_pattern` and
-`child_pattern` with one ordered `pattern` object, for example:
+`child_pattern` with one ordered `pattern` object of JSON alias lists,
+including lists for cameras with only one alias, for example:
 
 ```json
 "pattern": {
   "dad": ["_dad", "_papa"],
   "teen": ["_teen", "_child"],
   "room": ["_3rd", "third camera"],
-  "door": "_door"
+  "door": ["_door"]
 }
 ```
 
@@ -108,7 +109,9 @@ for a different camera layout. `--manual-offset` is available only for two-camer
 Completed individual outputs are checkpointed so an interrupted grid encode can resume.
 
 **Existing configs and migration:** configs without `pattern` still accept the old
-`mom_pattern` / `child_pattern` keys and retain their original two-camera behavior/output names.
+`mom_pattern` / `child_pattern` keys and retain
+their original two-camera behavior/output names (`mom_synced` / `child_synced`).
+An explicit `pattern` mapping takes precedence over these legacy matching settings.
 New setup defaults use `mom`, `teen`, and an optional `3rd`; edit these freely.
 For IDs such as `#2181`, set `"participant_id_regex": "^#\\d{2,8}$"` and quote the ID on
 the command line. Ensure `video_extensions` includes all formats you use (add `.m4v` if needed).

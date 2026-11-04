@@ -97,7 +97,7 @@ The keys below are the complete set accepted by the current Python pipeline. Def
 | `logs_qc` | `99_LOGS_QC` | State files, CSV, logs and the run lock. |
 | `participant_id_regex` | `^ID\\d{4,8}$` | Full-match pattern for IDs. In JSON, escape `\` as `\\`; for example, use `"^#\\d{4,8}$"` for IDs such as `#0000`. |
 | `pattern` | `mom`, `teen`, optional `3rd` in new setups | Ordered camera names mapped to a match string or alias list. First two are required, later cameras optional. Names also determine output suffixes and grid positions. Plain strings are case-insensitive substrings; wildcard strings match the whole filename stem. |
-| `mom_pattern`, `child_pattern` | `_mom`, `_child` | Legacy two-camera settings, used only when `pattern` is absent. |
+| `mom_pattern`, `child_pattern` | `_mom`, `_child` | Legacy two-camera settings, used only when `pattern` is absent. Legacy outputs retain `mom` / `child` suffixes. |
 | `video_description` | `null` | Optional filename label inserted after the ID for both synchronized videos and optional side-by-side output. A non-null label may contain letters, digits, single spaces, `_` or `-` between alphanumeric segments (maximum 80 characters); spaces become underscores. Changing it for completed pairs requires `--reprocess`. |
 | `video_extensions` | `[".mp4", ".avi", ".mov", ".mkv"]` | Accepted source extensions; matching is case-insensitive. |
 | `create_side_by_side` | `true` | Create `<ID>[_description]_side_by_side.mp4` with every present camera in a two-column grid (odd final cell black). Legacy configs retain the old two-panel layout. |
@@ -147,8 +147,8 @@ For WCHADS data, change the config.json to:
   "participant_id_regex": "^#\\d{4,8}$",
   "pattern": {
     "mom": ["mum view point", "parent view point"],
-    "teen": "teen view point",
-    "3rd": "third camera"
+    "teen": ["teen view point"],
+    "3rd": ["third camera"]
   },
   "create_side_by_side": true
 ```
