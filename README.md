@@ -318,8 +318,33 @@ research-video-sync --config config.json --dry-run
 research-video-sync --config config.json
 ```
 
-Other options: `--setup FOLLOWUP_ROOT` (create config and folder structure), `--participant IDxxxx` (repeatable; restrict to those IDs), `--reprocess IDxxxx`, `--manual-offset SECONDS`, `--yolo` (skip approval and set stability minutes to zero for this invocation),
-`--workers N` (override the pair limit without editing config), `--log-level DEBUG`. Exit code `0` = fine, `1` = real run cancelled at approval, `2` = something needs manual review/failed, `3` = config/tool/lock problem, `130` = interrupted.
+### Complete command-line reference
+
+These options apply to `research-video-sync`, `python -m rg2019`, and the compatibility
+`pipeline_rg2019.py` entry point. Run `python -m rg2019 --help` for the installed version's help.
+
+| Argument or flag | Effect |
+|---|---|
+| `DIRECTORY` | Optional positional data directory. Loads its `config.json` and uses it as the data root; defaults to the current directory. Cannot be combined with `--setup`. |
+| `--config PATH`, `--config-path PATH`, `--config_path PATH` | Equivalent aliases. Load this config instead of `DIRECTORY\config.json` and use its `followup_root`. With `--setup`, use it as the source template without changing the source file. |
+| `--setup FOLLOWUP_ROOT` | Create the target config and folder layout. Generated camera settings use `pattern` alias lists. Prompts before replacing an existing target config. |
+| `--dry-run` | Preview readiness, source matching and planned processing. Does not move, encode, or write config/state/log files. |
+| `--participant ID` | Process only this participant; repeat the flag to select multiple IDs. Quote IDs containing special characters, such as `--participant "#2181"`. |
+| `--reprocess ID` | Archive previous outputs and recompute this participant from RAW. Repeat for multiple IDs. This is not a resume flag: normal reruns reuse checkpoints. |
+| `--manual-offset SECONDS` | Use a reviewed offset with exactly one `--participant` and exactly two present cameras. Positive values trim the first present camera; negative values trim the second. Changing an offset after outputs exist requires `--reprocess`. |
+| `--require-all` | Override the config to require a match for every configured camera; incomplete sets are not processed. With `--setup`, save `require_all: true`. |
+| `--no-require-all` | Override the config to allow any two or more configured cameras, preserving config order. With `--setup`, save `require_all: false`. |
+| `--workers N` | Override `max_parallel_pairs` for this run. Must be a positive integer; `1` processes participants sequentially. |
+| `--yolo` | Skip approval and set stability minutes to zero for this run. Keeps transfer-file detection, growth re-checks, camera requirements, integrity checks and locking. |
+| `--log-level INFO` / `--log-level DEBUG` | Set logging verbosity; default is `INFO`. |
+| `--version` | Print the installed package version and exit. |
+| `-h`, `--help` | Print all command-line arguments and exit. |
+
+Run-time overrides do not rewrite `config.json`; the documented `--setup` overrides are saved
+to the generated config. When both camera-policy flags are supplied, the last one wins.
+
+Exit code `0` = fine, `1` = real run cancelled at approval or setup overwrite declined,
+`2` = something needs manual review/failed, `3` = config/tool/lock problem, `130` = interrupted.
 The run ends with a summary (Newly completed / Skipped completed / Waiting / Manual review / Failed, with IDs).
 `--yolo` still prints the pre-run report and retains transfer-file detection, the configured growth re-check, and the run lock. Changing `video_description` for existing outputs requires `--reprocess`; prior files are archived.
 The pre-run report lists videos under INBOX and RAW that have no unique participant ID matching `participant_id_regex` or match none of the configured camera patterns, including files in nested folders. Each entry shows its path and the unmatched patterns. Legacy mother/child patterns remain case-insensitive substrings, not regular expressions. With `--participant`, this list is restricted to videos identified as belonging to the selected participants.

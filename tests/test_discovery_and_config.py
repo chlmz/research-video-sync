@@ -157,6 +157,20 @@ def test_example_configs_use_matching_json_alias_lists():
     assert all(isinstance(aliases, list) and aliases for aliases in example["pattern"].values())
 
 
+def test_readme_documents_all_cli_flags_and_aliases(capsys):
+    from rg2019 import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.parse_args(["--help"])
+    assert exc.value.code == 0
+    flags = set(re.findall(r"(?<![\w-])--?[a-z][a-z_-]*", capsys.readouterr().out))
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+    reference = readme.split("### Complete command-line reference", 1)[1].split(
+        "### Parallel pairs", 1)[0]
+    assert flags
+    assert not {flag for flag in flags if flag not in reference}
+
+
 def test_paths_with_spaces_and_unicode_work_end_to_end(project):
     assert " " in str(project) and "Â" in str(project)
 
