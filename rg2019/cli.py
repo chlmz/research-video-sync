@@ -57,6 +57,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO"])
     ap.add_argument("--workers", type=int, metavar="N",
                     help="maximum simultaneous video pairs (overrides max_parallel_pairs)")
+    ap.add_argument("--require-all", action=argparse.BooleanOptionalAction, default=None,
+                    help="require every configured camera; --no-require-all allows any two or more "
+                         "(overrides config; with --setup saves the setting)")
     ap.add_argument("--version", action="version", version=f"pipeline_rg2019 {__version__}")
     args = ap.parse_args(argv)
     if args.setup is not None and args.directory is not None:
@@ -67,7 +70,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def setup_project(followup_root: Path, config_path: Path, overwrite: bool = False,
-                  source_config: Path | None = None) -> Path:
+                  source_config: Path | None = None, require_all: bool | None = None) -> Path:
     """Write config settings in the current format and initialize the folder layout."""
     if config_path.exists() and not overwrite:
         raise FileExistsError(f"config already exists: {config_path}; refusing to overwrite it")
@@ -78,8 +81,11 @@ def setup_project(followup_root: Path, config_path: Path, overwrite: bool = Fals
     if not isinstance(data, dict):
         raise cfgmod.ConfigError(f"Config must be a JSON object ({template_path})")
     data["followup_root"] = str(followup_root.expanduser().resolve())
+    if require_all is not None:
+        data["require_all"] = require_all
     cfg = cfgmod.from_dict(data)
     data["pattern"] = cfg.camera_patterns
+    data["require_all"] = cfg.require_all
     data.pop("mom_pattern", None)
     data.pop("child_pattern", None)
     cfg = cfgmod.from_dict(data)
@@ -329,11 +335,11 @@ def record_first_observations(cfg: cfgmod.Config, summary: Summary) -> None:
             continue
         source = next(((root, found[outcome.pid]) for root, found in jobs.items()
                        if outcome.pid in found and not found[outcome.pid].problem
-                       and found[outcome.pid].mom), None)
+                       and found[outcome.pid].files), None)
         if source is None:
             continue
         root, job = source
-        folder = job.mom[0].parent
+        folder = job.files[0].parent
         files = observer._files_under(folder)
         if not files:
             continue
@@ -402,6 +408,7 @@ def _main(argv=None) -> int:
         try:
             config_path = setup_project(
                 followup_root, config_path, overwrite=overwrite, source_config=args.config,
+                require_all=args.require_all,
             )
         except (OSError, ValueError, cfgmod.ConfigError) as exc:
             print(f"SETUP ERROR: {exc}", file=sys.stderr)
@@ -428,6 +435,8 @@ def _main(argv=None) -> int:
         cfg.followup_root = run_directory
     if args.workers is not None:
         cfg.max_parallel_pairs = args.workers
+    if args.require_all is not None:
+        cfg.require_all = args.require_all
     if args.manual_offset is not None and not (args.participant and len(args.participant) == 1):
         print("CONFIG ERROR: --manual-offset requires exactly one --participant", file=sys.stderr)
         return 3

@@ -96,7 +96,8 @@ The keys below are the complete set accepted by the current Python pipeline. Def
 | `synced` | `02_SYNCED` | Synchronized output videos. |
 | `logs_qc` | `99_LOGS_QC` | State files, CSV, logs and the run lock. |
 | `participant_id_regex` | `^ID\\d{4,8}$` | Full-match pattern for IDs. In JSON, escape `\` as `\\`; for example, use `"^#\\d{4,8}$"` for IDs such as `#0000`. |
-| `pattern` | `mom`, `teen`, optional `3rd` in new setups | Ordered camera names mapped to a match string or alias list. First two are required, later cameras optional. Names also determine output suffixes and grid positions. Plain strings are case-insensitive substrings; wildcard strings match the whole filename stem. |
+| `pattern` | `mom`, `teen`, `3rd` in new setups | Ordered camera names mapped to a match string or alias list. Names also determine output suffixes and grid positions. Plain strings are case-insensitive substrings; wildcard strings match the whole filename stem. |
+| `require_all` | `false` | If true, skip sets missing any configured camera; otherwise sync any two or more present cameras in config order. Override per run with `--require-all` or `--no-require-all`; with `--setup`, the override is saved. |
 | `mom_pattern`, `child_pattern` | `_mom`, `_child` | Legacy two-camera settings, used only when `pattern` is absent. Legacy outputs retain `mom` / `child` suffixes. |
 | `video_description` | `null` | Optional filename label inserted after the ID for both synchronized videos and optional side-by-side output. A non-null label may contain letters, digits, single spaces, `_` or `-` between alphanumeric segments (maximum 80 characters); spaces become underscores. Changing it for completed pairs requires `--reprocess`. |
 | `video_extensions` | `[".mp4", ".avi", ".mov", ".mkv"]` | Accepted source extensions; matching is case-insensitive. |
@@ -176,7 +177,7 @@ research-video-sync --config config.json
 
 The default `stability_minutes=0` disables the minimum-age and prior-observation checks. Transfer-in-progress files and the short growth re-check still block processing if files are arriving or changing. Set `stability_minutes` above `0` if you also want a minimum file age and the prior-observation interval.
 
-The pipeline accepts camera sets directly in `00_INBOX` or in nested folders. Each participant ID needs exactly one file for each of the first two configured camera names; later configured cameras are optional. All present cameras must match unambiguously in the same folder. The ID comes from the filenames or, if absent there, the folder path. Multiple IDs may share a folder. Source folders are preserved in `01_RAW` and `02_SYNCED`; status and logs are recorded under `99_LOGS_QC`. **Do not edit files in `01_RAW`.**
+The pipeline accepts camera sets directly in `00_INBOX` or in nested folders. Each participant ID needs any two or more configured cameras by default, or all configured cameras when `require_all` is true. All present cameras must match unambiguously in the same folder. Missing-camera sets are reported as `MISSING_FILES` and not processed. The ID comes from the filenames or, if absent there, the folder path. Multiple IDs may share a folder. Source folders are preserved in `01_RAW` and `02_SYNCED`; status and logs are recorded under `99_LOGS_QC`. **Do not edit files in `01_RAW`.**
 
 Cameras synchronize in config order, then all outputs use the shared overlap. See the
 [README multi-camera setup](../README.md#configuring-two-three-or-more-cameras) for aliases,

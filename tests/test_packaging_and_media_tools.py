@@ -63,6 +63,16 @@ def test_built_wheel_includes_working_compatibility_module(tmp_path):
         cwd=tmp_path, capture_output=True, text=True, check=True,
     )
     assert result.stdout.strip() == "pipeline_rg2019 2.0.0"
+    smoke = tmp_path / "installed_smoke.py"
+    smoke.write_text((project / "tests" / "installed_smoke.py").read_text(encoding="utf-8"),
+                     encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, "-I", "-c",
+         f"import sys, runpy; sys.path.insert(0, {str(installed)!r}); "
+         f"runpy.run_path({str(smoke)!r}, run_name='__main__')"],
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    )
+    assert "Installed package:" in result.stdout
 
 
 def test_check_tools_uses_path_tools_without_managed_download(tmp_path, monkeypatch):

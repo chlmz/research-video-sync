@@ -70,14 +70,27 @@ case-insensitive filename-stem substrings. Strings containing `*`, `?`, or `[` a
 case-insensitive glob patterns against the whole stem: `*dad` matches a stem ending in `dad`,
 while `*dad*` also matches `dad` in the middle. Do not include the video extension in a pattern.
 
-**Order matters.** The first two configured cameras must be present. Later cameras are optional;
-every one that is present must have exactly one unambiguous match in the same folder.
+**Order matters.** By default, `"require_all": false` allows any two or more configured
+cameras to be present, including when the first configured camera is absent.
+Set `"require_all": true` to skip participants missing any configured camera.
+Every camera that is present must have exactly one unambiguous match in the same folder.
 A file matching multiple camera names, duplicate matches, or recordings split across folders
 requires manual review; no file is chosen automatically.
-The first two cameras are synchronized first. Each subsequent camera is matched against already
+The first two present cameras are synchronized first. Each subsequent camera is matched against already
 aligned cameras in config order, using the first result that passes the audio quality checks.
 If a present camera cannot be aligned, the whole participant stops before producing videos.
 All outputs are trimmed to the same shared start and duration.
+
+Override the config for one run with `--require-all` or `--no-require-all`:
+
+```powershell
+python -m rg2019 "D:\RG2019_CAMERAS\FOLLOWUP_2026" --require-all
+python -m rg2019 "D:\RG2019_CAMERAS\FOLLOWUP_2026" --no-require-all
+```
+
+Run overrides do not rewrite the config. With `--setup`, these flags instead save the chosen
+setting in the generated config. Missing-camera sets are reported as `MISSING_FILES` and
+left unprocessed; ambiguous matches remain blocked regardless of this option.
 
 With `"create_side_by_side": true`, the combined `ID12345_side_by_side.mp4` includes **all**
 matched cameras in config order, left to right and top to bottom, using two columns.
@@ -276,7 +289,8 @@ Daily flow per participant:
 | `followup_root` | *(required)* | e.g. `D:\\RG2019_CAMERAS\\FOLLOWUP_2026` |
 | `inbox`, `raw`, `synced`, `logs_qc` | `00_INBOX`, `01_RAW`, `02_SYNCED`, `99_LOGS_QC` | folder names under the root (INBOX and RAW must be on the same volume) |
 | `participant_id_regex` | `^ID\d{4,8}$` | valid participant folder names (e.g. `ID100392`) |
-| `pattern` | setup uses `mom`, `teen`, optional `3rd` | ordered camera-name to match string/alias list; first two required; see multi-camera setup above |
+| `pattern` | setup uses `mom`, `teen`, `3rd` | ordered camera-name to match string/alias list; see multi-camera setup above |
+| `require_all` | `false` | require every configured camera if true; otherwise any two or more; override with `--require-all` / `--no-require-all` |
 | `mom_pattern`, `child_pattern` | `_mom`, `_child` | legacy two-camera configs only, when `pattern` is absent |
 | `video_extensions` | mp4, avi, mov, mkv | |
 | `require_ready_marker` | `false` | if `true`, `00_INBOX/IDxxxx/READY.txt` must exist |

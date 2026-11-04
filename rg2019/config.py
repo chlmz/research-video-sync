@@ -54,6 +54,7 @@ class Config:
     mom_pattern: str = "_mom"
     child_pattern: str = "_child"
     pattern: dict[str, str | list[str]] | None = None
+    require_all: bool = False
     video_description: str | None = None
     video_extensions: list[str] = field(default_factory=lambda: [".mp4", ".avi", ".mov", ".mkv"])
     require_ready_marker: bool = False
@@ -191,6 +192,8 @@ def _from_dict(data: dict[str, Any], path_cls: type[PurePath]) -> Config:
         cfg.video_description = cfg.video_description.replace(" ", "_")
     if not isinstance(cfg.require_approval, bool):
         raise ConfigError("require_approval must be true or false")
+    if not isinstance(cfg.require_all, bool):
+        raise ConfigError("require_all must be true or false")
     if type(cfg.max_parallel_pairs) is not int or cfg.max_parallel_pairs < 1:
         raise ConfigError("max_parallel_pairs must be a positive integer")
     cfg.video_extensions = [e.lower() if e.startswith(".") else "." + e.lower()

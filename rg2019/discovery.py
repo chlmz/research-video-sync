@@ -43,6 +43,7 @@ class Discovery:
     child: list[Path] = field(default_factory=list)
     both: list[Path] = field(default_factory=list)   # match BOTH patterns -> ambiguous
     cameras: dict[str, list[Path]] = field(default_factory=dict)
+    require_all: bool = False
 
     @property
     def roles(self) -> dict[str, list[Path]]:
@@ -61,11 +62,12 @@ class Discovery:
 
     @property
     def problem(self) -> str | None:
-        """First two cameras required, later cameras optional, all matches unambiguous."""
+        """Require all configured cameras, or any two; all matches remain unambiguous."""
         if (self.both or any(len(paths) > 1 for paths in self.roles.values())
                 or len({path.parent for path in self.files}) > 1):
             return "AMBIGUOUS"
-        if any(not paths for paths in list(self.roles.values())[:2]):
+        if (sum(bool(paths) for paths in self.roles.values()) < 2
+                or (self.require_all and any(not paths for paths in self.roles.values()))):
             return "MISSING"
         return None
 
@@ -90,10 +92,10 @@ def find_sources(cfg: Config, folder: Path) -> Discovery:
 
 def _discovery(cfg: Config) -> Discovery:
     if cfg.pattern is None:
-        return Discovery()
+        return Discovery(require_all=cfg.require_all)
     cameras = {role: [] for role in cfg.camera_patterns}
     first, second = list(cameras.values())[:2]
-    return Discovery(mom=first, child=second, cameras=cameras)
+    return Discovery(mom=first, child=second, cameras=cameras, require_all=cfg.require_all)
 
 
 def video_id(cfg: Config, path: Path, root: Path) -> str | None:

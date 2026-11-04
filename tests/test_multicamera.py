@@ -59,6 +59,87 @@ def test_ordered_aliases_globs_and_optional_cameras(tmp_path):
     assert find_sources(cfg, folder).problem == "MISSING"
 
 
+@pytest.mark.parametrize("require_all", [False, True])
+@pytest.mark.parametrize("present", [
+    ["dad"], ["teen", "room"], ["dad", "room"], ["dad", "teen", "room"],
+])
+def test_require_all_or_any_two_camera_discovery(tmp_path, require_all, present):
+    cfg = camera_config(tmp_path, {"dad": "_dad", "teen": "_teen", "room": "_room"})
+    cfg.require_all = require_all
+    folder = cfg.inbox_dir / "ID1234"
+    folder.mkdir(parents=True)
+    for role in present:
+        (folder / f"ID1234_{role}.mp4").touch()
+    expected = None if len(present) >= 2 and (not require_all or len(present) == 3) else "MISSING"
+    assert find_sources(cfg, folder).problem == expected
+    assert discover_jobs(cfg, cfg.inbox_dir)["ID1234"].problem == expected
+
+
+@pytest.mark.parametrize("value", [None, "false", 0, 1, []])
+def test_require_all_must_be_boolean(tmp_path, value):
+    with pytest.raises(config.ConfigError, match="require_all"):
+        config.from_dict({"followup_root": str(tmp_path), "require_all": value})
+
+
+@pytest.mark.parametrize("configured,flag,expected", [
+    (True, "--no-require-all", False), (False, "--require-all", True),
+    (True, None, True), (False, None, False),
+])
+def test_require_all_cli_override_without_rewriting_config(tmp_path, monkeypatch, configured, flag, expected):
+    cfg = camera_config(tmp_path, {"dad": "_dad", "teen": "_teen", "room": "_room"})
+    cfg.require_all = configured
+    cfg.inbox_dir.mkdir()
+    for role in ["teen", "room"]:
+        (cfg.inbox_dir / f"ID1234_{role}.mp4").write_bytes(b"fixture")
+    path = tmp_path / "config.json"
+    original = json.dumps(asdict(cfg), default=str)
+    path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(cli.media, "check_tools", lambda _: {})
+    monkeypatch.setattr(cli.media, "probe", lambda *args: media.MediaInfo(
+        7, 100, "mp4", 0, video_codec="h264", audio_codec="aac"))
+    seen = []
+    real_run = Pipeline.run
+
+    def run(self):
+        seen.append(self.cfg.require_all)
+        result = real_run(self)
+        assert bool(result.would_process) is not expected
+        if expected:
+            assert result.outcomes[0].status == S.MISSING_FILES
+        return result
+
+    monkeypatch.setattr(Pipeline, "run", run)
+    args = [str(tmp_path), "--dry-run"] + ([flag] if flag else [])
+    cli.main(args)
+    assert seen == [expected]
+    assert path.read_text(encoding="utf-8") == original
+    assert not cfg.raw_dir.exists()
+
+
+@pytest.mark.parametrize("flag,expected", [("--require-all", True), ("--no-require-all", False)])
+def test_setup_saves_require_all_override(tmp_path, flag, expected):
+    assert cli.main(["--setup", str(tmp_path), flag]) == 0
+    assert json.loads((tmp_path / "config.json").read_text())["require_all"] is expected
+
+
+def test_missing_first_camera_still_records_stability_observations(tmp_path):
+    import os
+
+    cfg = camera_config(tmp_path, {"dad": "_dad", "teen": "_teen", "room": "_room"})
+    cfg.stability_minutes = 1
+    cfg.inbox_dir.mkdir()
+    for role in ["teen", "room"]:
+        path = cfg.inbox_dir / f"ID1234_{role}.mp4"
+        path.write_bytes(b"fixture")
+        os.utime(path, (1, 1))
+    summary = Pipeline(cfg, dry_run=True).run()
+    assert summary.waiting == ["ID1234"]
+    cli.record_first_observations(cfg, summary)
+    state = StateStore(cfg).load("ID1234", "now")
+    assert len(state["stability"]["snapshot"]) == 2
+    assert not cfg.raw_dir.exists()
+
+
 def test_ambiguous_optional_camera_and_cross_folder_are_rejected(tmp_path):
     cfg = camera_config(tmp_path, {"dad": "_dad", "teen": "_teen", "room": "_wide"})
     folder = cfg.inbox_dir / "ID1234"
@@ -279,11 +360,12 @@ def test_setup_converts_source_config_to_pattern_alias_lists(tmp_path, legacy):
     assert config.load(target / "config.json").pattern == data["pattern"]
 
 
-def test_shared_inbox_keeps_each_participants_optional_cameras(tmp_path, monkeypatch):
+@pytest.mark.parametrize("names", [["dad", "teen", "room"], ["teen", "room"]])
+def test_shared_inbox_keeps_each_participants_optional_cameras(tmp_path, monkeypatch, names):
     cfg = camera_config(tmp_path, {"dad": "_dad", "teen": "_teen", "room": "_room"})
     cfg.inbox_dir.mkdir()
     for pid in ("ID1234", "ID5678"):
-        for role in cfg.camera_patterns:
+        for role in names:
             (cfg.inbox_dir / f"{pid}_{role}.mp4").write_bytes(b"synthetic fixture")
     monkeypatch.setattr(media, "probe", lambda *args: media.MediaInfo(
         17, 100, "mp4", 0, video_codec="h264", audio_codec="aac"))
@@ -298,9 +380,38 @@ def test_shared_inbox_keeps_each_participants_optional_cameras(tmp_path, monkeyp
     assert result.newly_completed == ["ID1234", "ID5678"], result.render()
     assert len(prepared) == 2
     for job in prepared:
-        assert list(job.sources) == ["dad", "teen", "room"]
+        assert list(job.sources) == names
         assert all(path.name.startswith(job.pid) for path, _ in job.sources.values())
         assert all(path.parent == cfg.raw_dir for path, _ in job.sources.values())
+
+
+def test_any_two_later_cameras_sync_and_require_all_leaves_inbox_untouched(tmp_path):
+    cfg = camera_config(tmp_path, {"dad": "_dad", "teen": "_teen", "room": "_room", "door": "_door"})
+    folder = cfg.inbox_dir / "ID1234"
+    folder.mkdir(parents=True)
+    rate = 8000
+    wall = wall_signal(18, rate, seed=64)
+    for role, start in [("room", 0), ("door", 2)]:
+        make_video(folder / f"ID1234_{role}.mp4", recording(wall, rate, start, 12), rate, 12)
+    cfg.require_all = True
+    skipped = Pipeline(cfg).run()
+    assert skipped.outcomes[0].status == S.MISSING_FILES
+    assert len(list(folder.iterdir())) == 2
+    assert not cfg.raw_dir.exists() and not cfg.synced_dir.exists()
+    cfg.require_all = False
+    result = Pipeline(cfg).run()
+    assert result.newly_completed == ["ID1234"], result.render()
+    st = StateStore(cfg).load("ID1234", "now")
+    assert st["camera_order"] == ["room", "door"]
+    assert set(st["outputs"]["files"]) == {"room", "door", "side_by_side"}
+    assert st["sync"]["offsets"]["door"] == pytest.approx(2, abs=0.06)
+    outputs = {path.name: media.sha256_file(path) for path in (cfg.synced_dir / "ID1234").iterdir()}
+    cfg.require_all = True
+    skipped = Pipeline(cfg, reprocess=["ID1234"]).run()
+    assert skipped.outcomes[0].status == S.MISSING_FILES
+    assert {path.name: media.sha256_file(path) for path in (cfg.synced_dir / "ID1234").iterdir()} == outputs
+    cfg.require_all = False
+    assert Pipeline(cfg).run().skipped_completed == ["ID1234"]
 
 
 def test_changed_camera_order_cannot_resume_partial_promotion(tmp_path):

@@ -258,7 +258,7 @@ class Pipeline:
             st = self._load(pid)
             if st.get("stage") == "PROMOTING":
                 continue
-            folder = job.mom[0].parent
+            folder = job.files[0].parent
             try:
                 wait = self._check_ready(st, folder, self._files_under(folder))
             except OSError as exc:
@@ -337,6 +337,10 @@ class Pipeline:
         payload = self._payload(cfg, inbox) if inbox.is_dir() else []
         in_inbox, in_raw = bool(payload), raw.is_dir()
         resuming = st.get("stage") == "PROMOTING"
+        if cfg.require_all and in_raw and not in_inbox and not resuming:
+            found = find_sources(cfg, raw)
+            if found.problem == "MISSING":
+                return self._fail(st, S.MISSING_FILES, "Not all configured cameras are present. " + found.describe())
 
         if pid in self.reprocess or st.get("reprocess_pending"):
             if self.dry:
@@ -383,7 +387,7 @@ class Pipeline:
             relative_dir = Path(st["source_folder"])
         elif pair:
             source_root = cfg.inbox_dir if pair is incoming else cfg.raw_dir
-            relative_dir = pair.mom[0].parent.relative_to(source_root)
+            relative_dir = pair.files[0].parent.relative_to(source_root)
         else:
             relative_dir = Path(".")
         if not pair and st.get("stage") != "PROMOTING":
@@ -398,11 +402,11 @@ class Pipeline:
                 return Outcome(pid, WOULD_PROCESS, "", "dry", ["archive existing outputs and re-sync from RAW"])
             self._prepare_reprocess(st, out)
         if incoming and st.get("stage") != "PROMOTING":
-            files = self._files_under(pair.mom[0].parent)
-            wait = self._check_ready(st, pair.mom[0].parent, files)
+            files = self._files_under(pair.files[0].parent)
+            wait = self._check_ready(st, pair.files[0].parent, files)
             if wait:
                 return self._fail(st, wait[0], wait[1])
-            fail, found = self._discover_and_probe(st, pair.mom[0].parent, discovery=pair)
+            fail, found = self._discover_and_probe(st, pair.files[0].parent, discovery=pair)
             if fail:
                 return fail
             if self.dry:
@@ -439,11 +443,11 @@ class Pipeline:
             if folder != cfg.inbox_dir and not any(p.name != cfg.ready_marker_name for p in folder.iterdir()):
                 self._tidy_inbox(folder)
         elif not st.get("sources"):
-            files = self._files_under(pair.mom[0].parent)
-            wait = self._check_ready(st, pair.mom[0].parent, files, marker=False)
+            files = self._files_under(pair.files[0].parent)
+            wait = self._check_ready(st, pair.files[0].parent, files, marker=False)
             if wait:
                 return self._fail(st, wait[0], wait[1])
-            fail, found = self._discover_and_probe(st, pair.mom[0].parent, discovery=pair)
+            fail, found = self._discover_and_probe(st, pair.files[0].parent, discovery=pair)
             if fail:
                 return fail
             if self.dry:
@@ -689,6 +693,9 @@ class Pipeline:
         if st.get("sources") and cfg.pattern is not None:
             folder = (raw / next(iter(st["sources"].values()))["name"]).parent
             discovered = discover_jobs(cfg, raw).get(pid) or find_sources(cfg, folder)
+            if cfg.require_all and discovered.problem == "MISSING":
+                return self._fail(st, S.MISSING_FILES,
+                                  "Not all configured cameras are present. " + discovered.describe())
             recorded = set(st["sources"])
             expected = {role for role, paths in discovered.roles.items() if paths}
             changed = (recorded != expected
