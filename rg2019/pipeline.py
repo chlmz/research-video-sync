@@ -145,6 +145,20 @@ class Pipeline:
         if not self.dry:
             self.store.save(st)
 
+    def _roles(self, st: dict) -> list[str]:
+        if self.cfg.pattern is not None:
+            return [role for role in self.cfg.camera_patterns
+                    if not st.get("sources") or role in st["sources"]]
+        return list(ROLES)
+
+    def _promotion_config_changed(self, st: dict) -> bool:
+        if st.get("stage") != "PROMOTING" or not st.get("sources"):
+            return False
+        configured = list(self.cfg.camera_patterns)
+        recorded = st.get("camera_order", list(ROLES))
+        return (recorded != [role for role in configured if role in st["sources"]]
+                or set(recorded) != set(st["sources"]))
+
     def _set(self, st: dict, status: str, msg: str = "") -> None:
         if st.get("status") != status or st.get("message") != msg:
             st["history"].append({"at": self._iso(), "event": f"{status}: {msg}" if msg else status})
@@ -244,7 +258,7 @@ class Pipeline:
             st = self._load(pid)
             if st.get("stage") == "PROMOTING":
                 continue
-            folder = job.mom[0].parent
+            folder = job.files[0].parent
             try:
                 wait = self._check_ready(st, folder, self._files_under(folder))
             except OSError as exc:
@@ -305,20 +319,28 @@ class Pipeline:
         legacy = any((root / pid).is_dir() for root in discovered)
         for root, jobs in discovered.items():
             if any(path.parent != root / pid for job in (jobs.get(pid),) if job
-                   for path in job.mom + job.child + job.both):
+                   for path in job.files + job.both):
                 legacy = False
             if any(path.parent == root / pid for other_id, job in jobs.items() if other_id != pid
-                   for path in job.mom + job.child + job.both):
+                   for path in job.files + job.both):
                 legacy = False
         if not legacy:
             return self._process_discovered(pid)
         inbox, raw, out = cfg.inbox_dir / pid, cfg.raw_dir / pid, cfg.synced_dir / pid
         self._integrity.pop(pid, None)
         st = self._load(pid)
+        if self._promotion_config_changed(st):
+            return self._fail(st, S.RAW_CONFLICT,
+                              "Camera configuration changed during promotion; restore the recorded "
+                              "camera names/order and rerun before reconfiguring.")
         st["last_checked_at"] = self._iso()
         payload = self._payload(cfg, inbox) if inbox.is_dir() else []
         in_inbox, in_raw = bool(payload), raw.is_dir()
         resuming = st.get("stage") == "PROMOTING"
+        if cfg.require_all and in_raw and not in_inbox and not resuming:
+            found = find_sources(cfg, raw)
+            if found.problem == "MISSING":
+                return self._fail(st, S.MISSING_FILES, "Not all configured cameras are present. " + found.describe())
 
         if pid in self.reprocess or st.get("reprocess_pending"):
             if self.dry:
@@ -345,6 +367,10 @@ class Pipeline:
         """Process a pair in an arbitrary directory, preserving its relative path."""
         cfg = self.cfg
         st = self._load(pid)
+        if self._promotion_config_changed(st):
+            return self._fail(st, S.RAW_CONFLICT,
+                              "Camera configuration changed during promotion; restore the recorded "
+                              "camera names/order and rerun before reconfiguring.")
         st["last_checked_at"] = self._iso()
         incoming = discover_jobs(cfg, cfg.inbox_dir).get(pid)
         existing = discover_jobs(cfg, cfg.raw_dir).get(pid)
@@ -361,7 +387,7 @@ class Pipeline:
             relative_dir = Path(st["source_folder"])
         elif pair:
             source_root = cfg.inbox_dir if pair is incoming else cfg.raw_dir
-            relative_dir = pair.mom[0].parent.relative_to(source_root)
+            relative_dir = pair.files[0].parent.relative_to(source_root)
         else:
             relative_dir = Path(".")
         if not pair and st.get("stage") != "PROMOTING":
@@ -376,17 +402,17 @@ class Pipeline:
                 return Outcome(pid, WOULD_PROCESS, "", "dry", ["archive existing outputs and re-sync from RAW"])
             self._prepare_reprocess(st, out)
         if incoming and st.get("stage") != "PROMOTING":
-            files = self._files_under(pair.mom[0].parent)
-            wait = self._check_ready(st, pair.mom[0].parent, files)
+            files = self._files_under(pair.files[0].parent)
+            wait = self._check_ready(st, pair.files[0].parent, files)
             if wait:
                 return self._fail(st, wait[0], wait[1])
-            fail, found = self._discover_and_probe(st, pair.mom[0].parent, discovery=pair)
+            fail, found = self._discover_and_probe(st, pair.files[0].parent, discovery=pair)
             if fail:
                 return fail
             if self.dry:
                 return Outcome(pid, WOULD_PROCESS, "", "dry", [
                     f"move pair to 01_RAW/{relative_dir}, then sync into 02_SYNCED/{relative_dir}/{pid}"])
-            for role in ROLES:
+            for role in found:
                 path, info = found[role]
                 st["sources"][role] = {"name": path.relative_to(cfg.inbox_dir).as_posix(),
                                        "size": info.size_bytes, "mtime_ns": path.stat().st_mtime_ns,
@@ -396,7 +422,7 @@ class Pipeline:
             self._save(st)
         if st.get("stage") == "PROMOTING":
             try:
-                for role in ROLES:
+                for role in self._roles(st):
                     name = st["sources"][role]["name"]
                     src, dst = cfg.inbox_dir / name, cfg.raw_dir / name
                     if dst.exists():
@@ -417,16 +443,16 @@ class Pipeline:
             if folder != cfg.inbox_dir and not any(p.name != cfg.ready_marker_name for p in folder.iterdir()):
                 self._tidy_inbox(folder)
         elif not st.get("sources"):
-            files = self._files_under(pair.mom[0].parent)
-            wait = self._check_ready(st, pair.mom[0].parent, files, marker=False)
+            files = self._files_under(pair.files[0].parent)
+            wait = self._check_ready(st, pair.files[0].parent, files, marker=False)
             if wait:
                 return self._fail(st, wait[0], wait[1])
-            fail, found = self._discover_and_probe(st, pair.mom[0].parent, discovery=pair)
+            fail, found = self._discover_and_probe(st, pair.files[0].parent, discovery=pair)
             if fail:
                 return fail
             if self.dry:
                 return Outcome(pid, WOULD_PROCESS, "", "dry", ["validate, hash and sync RAW pair"])
-            for role in ROLES:
+            for role in found:
                 path, info = found[role]
                 st["sources"][role] = {"name": path.relative_to(cfg.raw_dir).as_posix(),
                                        "size": info.size_bytes, "mtime_ns": path.stat().st_mtime_ns,
@@ -504,12 +530,13 @@ class Pipeline:
         d: Discovery = discovery if discovery is not None else find_sources(cfg, folder)
         prob = d.problem
         if prob == "MISSING":
-            return self._fail(st, S.MISSING_FILES, "mother and/or child video not found. " + d.describe(), kind), {}
+            return self._fail(st, S.MISSING_FILES,
+                              "required camera video not found. " + d.describe(), kind), {}
         if prob == "AMBIGUOUS":
             return self._fail(st, S.AMBIGUOUS_FILES,
                               "more than one plausible video (no file was chosen automatically). "
                               + d.describe(), kind), {}
-        paths = {"mom": d.mom[0], "child": d.child[0]}
+        paths = {role: paths[0] for role, paths in d.roles.items() if paths}
         infos: dict[str, MediaInfo] = {}
         for role, p in paths.items():
             try:
@@ -524,7 +551,9 @@ class Pipeline:
             if not infos[role].has_audio:
                 return self._fail(st, S.NO_AUDIO, f"{role} ({p.name}) has no audio stream; audio "
                                                   f"synchronisation is impossible", kind), {}
-        return None, {r: (paths[r], infos[r]) for r in ROLES}
+        if cfg.pattern is not None:
+            st["camera_order"] = list(paths)
+        return None, {r: (paths[r], infos[r]) for r in paths}
 
     # ------------------------------------------------------------------ INBOX branch
     def _from_inbox(self, pid, st, inbox, raw, out, resuming) -> Outcome | PreparedPair:
@@ -539,18 +568,18 @@ class Pipeline:
             fail, found = self._discover_and_probe(st, inbox)
             if fail:
                 return fail
-            plan = [f"validate OK: mom={found['mom'][0].name} ({found['mom'][1].duration:.1f}s), "
-                    f"child={found['child'][0].name} ({found['child'][1].duration:.1f}s)",
-                    "compute SHA-256 of both source videos (once)",
+            plan = ["validate OK: " + ", ".join(
+                    f"{role}={path.name} ({info.duration:.1f}s)" for role, (path, info) in found.items()),
+                    "compute SHA-256 of source videos (once)",
                     f"MOVE 00_INBOX/{pid} -> 01_RAW/{pid} (files moved one by one, never overwritten)",
                     "then extract audio from RAW, estimate offset, and encode "
-                    f"{pid}_mom_synced.mp4 / {pid}_child_synced.mp4"
+                    + " / ".join(self._output_name(pid, f"{role}_synced") for role in found)
                     + (f" / {pid}_side_by_side.mp4" if cfg.create_side_by_side else "")
                     + f" into 02_SYNCED/{pid}"]
             if self.dry:
                 log.info("[DRY-RUN] %s: %s", pid, " | ".join(plan))
                 return Outcome(pid, WOULD_PROCESS, "", "dry", plan)
-            for role in ROLES:
+            for role in found:
                 path, info = found[role]
                 log.info("%s: hashing %s source %s (%.2f GB)", pid, role, path.name, info.size_bytes / 1e9)
                 st["sources"][role] = {"name": path.name, "size": info.size_bytes,
@@ -579,7 +608,7 @@ class Pipeline:
             return self._fail(st, S.PROMOTE_FAILED,
                               f"could not move material into RAW ({exc}). INBOX and RAW must be on the same "
                               f"volume; files not yet moved remain in 00_INBOX (safe to re-run).")
-        for role in ROLES:                     # verify what landed in RAW is what we recorded
+        for role in self._roles(st):            # verify what landed in RAW is what we recorded
             src = st["sources"][role]
             f = raw / src["name"]
             if not f.is_file() or f.stat().st_size != src["size"]:
@@ -622,7 +651,7 @@ class Pipeline:
         return result
 
     def _check_sources(self, st: dict, raw: Path) -> str | None:
-        for role in ROLES:
+        for role in self._roles(st):
             src = st.get("sources", {}).get(role)
             if not src:
                 return f"no recorded {role} source"
@@ -647,7 +676,7 @@ class Pipeline:
 
     def _outputs_valid(self, st: dict, out: Path) -> bool:
         files = st.get("outputs", {}).get("files", {})
-        keys = list(ROLES)
+        keys = self._roles(st)
         if self.cfg.create_side_by_side and "side_by_side" in files:
             keys.append("side_by_side")       # expected AND recorded: must still be intact
         for key in keys:
@@ -661,6 +690,43 @@ class Pipeline:
 
     def _from_raw(self, pid, st, raw, out, promoted_now: bool = False) -> Outcome | PreparedPair:
         cfg = self.cfg
+        if st.get("sources") and cfg.pattern is not None:
+            folder = (raw / next(iter(st["sources"].values()))["name"]).parent
+            discovered = discover_jobs(cfg, raw).get(pid) or find_sources(cfg, folder)
+            if cfg.require_all and discovered.problem == "MISSING":
+                return self._fail(st, S.MISSING_FILES,
+                                  "Not all configured cameras are present. " + discovered.describe())
+            recorded = set(st["sources"])
+            expected = {role for role, paths in discovered.roles.items() if paths}
+            changed = (recorded != expected
+                       or "camera_order" not in st
+                       or st.get("camera_order", self._roles(st)) != self._roles(st)
+                       or any((raw / st["sources"][role]["name"]) != paths[0]
+                              for role, paths in discovered.roles.items() if paths and role in recorded)
+                       or discovered.problem is not None)
+            if (pid in self.reprocess or st.get("rediscover_cameras")) and not self.dry:
+                # Reprocessing explicitly authorizes rediscovery, but not changed RAW content.
+                for role, record in st["sources"].items():
+                    source = raw / record["name"]
+                    if not source.is_file() or media.sha256_file(source) != record["sha256"]:
+                        return self._fail(st, S.RAW_CONFLICT, f"{role} RAW source changed; review manually")
+                fail, found = self._discover_and_probe(st, folder, discovery=discovered)
+                if fail:
+                    return fail
+                st["sources"] = {
+                    role: {"name": path.relative_to(raw).as_posix(), "size": info.size_bytes,
+                           "mtime_ns": path.stat().st_mtime_ns, "sha256": media.sha256_file(path),
+                           "media": info.to_dict()}
+                    for role, (path, info) in found.items()
+                }
+                st["camera_order"] = list(found)
+                st.pop("rediscover_cameras", None)
+                self._integrity.pop(pid, None)
+                self._save(st)
+            elif changed:
+                return self._fail(st, S.RAW_CONFLICT,
+                                  "Configured/discovered cameras differ from recorded sources. "
+                                  "Review RAW and use --reprocess to change camera names, order or membership.")
         # 1. tear down completed work quickly
         if st.get("sync_completed_at") and st.get("sources") and st.get("stage") != "PROMOTING":
             bad = self._sources_intact(st, raw)
@@ -695,7 +761,7 @@ class Pipeline:
             if self.dry:
                 plan = [f"RAW-only participant without state: validate, hash and sync from 01_RAW/{pid}"]
                 return Outcome(pid, WOULD_PROCESS, "", "dry", plan)
-            for role in ROLES:
+            for role in found:
                 path, info = found[role]
                 st["sources"][role] = {"name": path.name, "size": info.size_bytes,
                                        "mtime_ns": path.stat().st_mtime_ns,
@@ -711,19 +777,22 @@ class Pipeline:
                 st["stage"], st["raw_promoted_at"] = "RAW", st.get("raw_promoted_at") or self._iso()
                 self._set(st, S.RAW_PROMOTED, "promotion completed")
         for key, rec in st.get("outputs", {}).get("files", {}).items():
-            if key not in ROLES and not (key == "side_by_side" and cfg.create_side_by_side):
+            if key not in self._roles(st) and not (key == "side_by_side" and cfg.create_side_by_side):
                 continue
             existing = out / rec["name"]
             if existing.exists() and not checkpoints.matches_output(existing, rec):
                 return self._fail(st, S.OUTPUT_CONFLICT,
                                   f"{existing.name} differs from its recorded size or SHA-256; not overwriting.")
-        src = {r: (raw / st["sources"][r]["name"], MediaInfo(**st["sources"][r]["media"])) for r in ROLES}
+        src = {r: (raw / st["sources"][r]["name"], MediaInfo(**st["sources"][r]["media"]))
+               for r in self._roles(st)}
         job = PreparedPair(pid, st, src, out)
         return job if self._preparing else self._finish_raw(job)
 
     def _finish_raw(self, job: PreparedPair) -> Outcome:
         pid, st, src, out = job.pid, job.state, job.sources, job.output_dir
         cfg = self.cfg
+        if cfg.pattern is not None:
+            return self._finish_cameras(job)
         # 3. offset
         offset = st.get("sync", {}).get("offset_seconds")
         if self.manual_offset is not None and self.only and len(self.only) == 1:
@@ -776,15 +845,85 @@ class Pipeline:
             for array in arrays.values():
                 array._mmap.close()
 
+    def _finish_cameras(self, job: PreparedPair) -> Outcome:
+        """Align cameras in config order, with reviewed evidence for every added camera."""
+        pid, st, src, out = job.pid, job.state, job.sources, job.output_dir
+        roles = list(src)
+        if self.dry:
+            return Outcome(pid, WOULD_PROCESS, "", "dry", [
+                f"align cameras in order: {', '.join(roles)}",
+                "trim all cameras to their shared overlap and encode a two-column grid"])
+        if self.manual_offset is not None and len(roles) != 2:
+            return self._fail(st, S.SYNC_FAILED, "--manual-offset is supported only for two-camera sets")
+        previous = st.get("sync", {})
+        if (self.manual_offset is not None and st.get("outputs", {}).get("files")
+                and previous.get("offsets", {}).get(roles[1]) != self.manual_offset):
+            return self._fail(st, S.OUTPUT_CONFLICT,
+                              "A different manual offset requires --reprocess; existing outputs retained")
+        offsets = dict(previous.get("offsets", {}))
+        estimates = dict(previous.get("estimates", {}))
+        reference = roles[0]
+        offsets[reference] = 0.0
+        arrays = {}
+        try:
+            for index, role in enumerate(roles[1:], 1):
+                if index == 1 and self.manual_offset is not None:
+                    offsets[role] = float(self.manual_offset)
+                elif role not in offsets:
+                    reasons = []
+                    for anchor in roles[:index]:
+                        for camera in (anchor, role):
+                            if camera not in arrays:
+                                arrays[camera] = checkpoints.audio(
+                                    self.cfg, st, camera, src[camera][0], self._save)
+                        estimate = syncest.estimate_offset(
+                            arrays[anchor], arrays[role], self.cfg.sync,
+                            src[anchor][1].audio_start, src[role][1].audio_start)
+                        if estimate.ok and estimate.offset_seconds is not None:
+                            offsets[role] = offsets[anchor] + estimate.offset_seconds
+                            estimates[role] = {"anchor": anchor, **estimate.to_dict()}
+                            break
+                        reasons.append(f"{anchor}: {estimate.reason}")
+                    if role not in offsets:
+                        return self._fail(st, S.LOW_CONFIDENCE,
+                                          f"{role} could not be aligned: {'; '.join(reasons)}. "
+                                          "No videos produced; review and use --reprocess.")
+                st["sync"] = {
+                    "offsets": offsets, "estimates": estimates,
+                    "offset_seconds": offsets[roles[1]],
+                    "offset_source": "manual" if self.manual_offset is not None else "auto",
+                    "estimated_at": self._iso(),
+                    "convention": "offset[camera] = t_reference - t_camera",
+                }
+                self._save(st)
+        except (MediaError, OSError, ValueError) as exc:
+            st["attempts"] = st.get("attempts", 0) + 1
+            return self._fail(st, S.SYNC_FAILED, str(exc))
+        finally:
+            for array in arrays.values():
+                array._mmap.close()
+        start = max(offsets[role] for role in roles)
+        trims = {role: start - offsets[role] for role in roles}
+        duration = min(src[role][1].duration - trims[role] for role in roles)
+        if duration < self.cfg.sync.min_overlap_seconds:
+            return self._fail(st, S.LOW_CONFIDENCE,
+                              f"Shared overlap {duration:.3f}s is shorter than "
+                              f"{self.cfg.sync.min_overlap_seconds:g}s; no outputs produced")
+        st["sync"].update({"trims": trims, "duration": duration})
+        self._save(st)
+        return self._encode_all(pid, st, src, out, offsets[roles[1]], trims, duration)
+
     # ------------------------------------------------------------------ encoding
     def _output_name(self, pid: str, suffix: str) -> str:
         description = f"_{self.cfg.video_description}" if self.cfg.video_description else ""
         return f"{pid}{description}_{suffix}.mp4"
 
-    def _encode_all(self, pid, st, src, out: Path, offset: float) -> Outcome:
+    def _encode_all(self, pid, st, src, out: Path, offset: float,
+                    trims: dict[str, float] | None = None, duration: float | None = None) -> Outcome:
         cfg = self.cfg
         mt, ct = syncest.trim_plan(offset, cfg.encode.min_trim_seconds)
-        trims = {"mom": mt, "child": ct}
+        if trims is None:
+            trims = {"mom": mt, "child": ct}
         out.mkdir(parents=True, exist_ok=True)
         conflict = checkpoints.recover_outputs(st, out, self._save)
         if conflict:
@@ -794,8 +933,11 @@ class Pipeline:
             stale.unlink(missing_ok=True)
         files = st.setdefault("outputs", {}).setdefault("files", {})
         try:
-            for role in ROLES:
-                if not self._make_output(pid, st, files, out, role, src[role][0], src[role][1], trims[role]):
+            for role in src:
+                args = (pid, st, files, out, role, src[role][0], src[role][1], trims[role])
+                made = (self._make_output(*args, duration=duration) if duration is not None
+                        else self._make_output(*args))
+                if not made:
                     return Outcome(pid, S.OUTPUT_CONFLICT, st["message"])
             if cfg.create_side_by_side:
                 final = out / self._output_name(pid, "side_by_side")
@@ -810,8 +952,11 @@ class Pipeline:
                                           f"{final.name} exists in 02_SYNCED but does not match the recorded "
                                           f"state; not overwriting. Move/rename it and re-run.")
                     part = final.with_name(final.name + ".partial")   # missing (or never made): (re)create
-                    media.side_by_side(cfg, out / files["mom"]["name"], out / files["child"]["name"], part)
-                    self._commit(st, part, final, "side_by_side", None, "reencode")
+                    if cfg.pattern is None:
+                        media.side_by_side(cfg, out / files["mom"]["name"], out / files["child"]["name"], part)
+                    else:
+                        media.camera_grid(cfg, [out / files[role]["name"] for role in src], part)
+                    self._commit(st, part, final, "side_by_side", duration, "reencode")
                     self._save(st)
         except checkpoints.OutputConflict as exc:
             return self._fail(st, S.OUTPUT_CONFLICT, str(exc))
@@ -829,7 +974,8 @@ class Pipeline:
         log.info("%s: SUCCESS (offset %+.4f s)", pid, offset)
         return Outcome(pid, S.SUCCESS, "", "new")
 
-    def _make_output(self, pid, st, files, out, role, src_path, info, trim) -> bool:
+    def _make_output(self, pid, st, files, out, role, src_path, info, trim,
+                     duration: float | None = None) -> bool:
         cfg = self.cfg
         final = out / self._output_name(pid, f"{role}_synced")
         rec = files.get(role)
@@ -846,8 +992,9 @@ class Pipeline:
             return False
         part = final.with_name(final.name + ".partial")
         log.info("%s: writing %s (trim %.3f s)", pid, final.name, trim)
-        method = media.encode(cfg, src_path, part, trim, info)
-        expected = (info.duration or 0) - trim
+        method = (media.encode(cfg, src_path, part, trim, info, duration=duration)
+                  if duration is not None else media.encode(cfg, src_path, part, trim, info))
+        expected = duration if duration is not None else (info.duration or 0) - trim
         self._commit(st, part, final, role, expected, method)
         self._save(st)
         return True
@@ -889,6 +1036,8 @@ class Pipeline:
             arch.mkdir(parents=True, exist_ok=True)
             os.rename(source, dest)
         st.update({"sync": {}, "outputs": {"files": {}}, "sync_completed_at": None, "attempts": 0})
+        if self.cfg.pattern is not None:
+            st["rediscover_cameras"] = True
         st.pop("audio_checkpoints", None)
         st.pop("reprocess_pending", None)
         self._set(st, S.RAW_PROMOTED, "reprocess requested")

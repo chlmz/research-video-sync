@@ -44,3 +44,4 @@ jobs:
           research-video-sync --version
           python -c "import subprocess,sys,tempfile; subprocess.run([sys.executable, '-m', 'rg2019', '--version'], cwd=tempfile.gettempdir(), check=True)"
           python -c "import subprocess,sys,tempfile; subprocess.run([sys.executable, '-I', '-m', 'pipeline_rg2019', '--version'], cwd=tempfile.gettempdir(), check=True)"
+          python -I tests/installed_smoke.py

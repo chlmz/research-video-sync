@@ -135,9 +135,9 @@ def cleanup(cfg: Config, pid: str) -> None:
     if not folder.exists():
         return
     try:
-        for role in ("mom", "child"):
-            for name in (f"{role}.pcm", f"{role}.pcm.partial"):
-                (folder / name).unlink(missing_ok=True)
+        for path in folder.iterdir():
+            if path.name.endswith((".pcm", ".pcm.partial")) and path.is_file():
+                path.unlink(missing_ok=True)
         if not any(folder.iterdir()):
             folder.rmdir()
     except OSError as exc:

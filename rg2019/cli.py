@@ -52,10 +52,14 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--reprocess", action="append", metavar="ID",
                     help="recompute this participant from RAW; previous outputs are archived, not deleted")
     ap.add_argument("--manual-offset", type=float, metavar="SECONDS",
-                    help="with exactly one --participant: use this reviewed offset (>0 trims mom, <0 trims child)")
+                    help="with exactly one --participant and two cameras: reviewed offset "
+                         "(>0 trims first camera, <0 trims second)")
     ap.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO"])
     ap.add_argument("--workers", type=int, metavar="N",
                     help="maximum simultaneous video pairs (overrides max_parallel_pairs)")
+    ap.add_argument("--require-all", action=argparse.BooleanOptionalAction, default=None,
+                    help="require every configured camera; --no-require-all allows any two or more "
+                         "(overrides config; with --setup saves the setting)")
     ap.add_argument("--version", action="version", version=f"pipeline_rg2019 {__version__}")
     args = ap.parse_args(argv)
     if args.setup is not None and args.directory is not None:
@@ -66,8 +70,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def setup_project(followup_root: Path, config_path: Path, overwrite: bool = False,
-                  source_config: Path | None = None) -> Path:
-    """Copy config settings into the follow-up root and initialize its folder layout."""
+                  source_config: Path | None = None, require_all: bool | None = None) -> Path:
+    """Write config settings in the current format and initialize the folder layout."""
     if config_path.exists() and not overwrite:
         raise FileExistsError(f"config already exists: {config_path}; refusing to overwrite it")
 
@@ -77,6 +81,13 @@ def setup_project(followup_root: Path, config_path: Path, overwrite: bool = Fals
     if not isinstance(data, dict):
         raise cfgmod.ConfigError(f"Config must be a JSON object ({template_path})")
     data["followup_root"] = str(followup_root.expanduser().resolve())
+    if require_all is not None:
+        data["require_all"] = require_all
+    cfg = cfgmod.from_dict(data)
+    data["pattern"] = cfg.camera_patterns
+    data["require_all"] = cfg.require_all
+    data.pop("mom_pattern", None)
+    data.pop("child_pattern", None)
     cfg = cfgmod.from_dict(data)
 
     cfg.followup_root.mkdir(parents=True, exist_ok=True)
@@ -122,7 +133,7 @@ def matching_video_files(cfg: cfgmod.Config) -> list[Path]:
     matches = []
     for root in (cfg.inbox_dir, cfg.raw_dir):
         for job in discover_jobs(cfg, root).values():
-            matches.extend(job.mom + job.child + job.both)
+            matches.extend(job.files + job.both)
     return matches
 
 
@@ -160,15 +171,15 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
             reasons = []
             if pid is None:
                 reasons.append(f"no unique participant ID matching {cfg.participant_id_regex!r}")
-            if not (cfg.mom_pattern.lower() in path.stem.lower()
-                    or cfg.child_pattern.lower() in path.stem.lower()):
-                reasons.append(f"neither mother pattern {cfg.mom_pattern!r} "
-                               f"nor child pattern {cfg.child_pattern!r} matches")
+            if not cfg.matching_roles(path.stem):
+                reasons.append(
+                    f"no camera pattern {cfg.pattern!r} matches" if cfg.pattern is not None else
+                    f"neither mother pattern {cfg.mom_pattern!r} nor child pattern {cfg.child_pattern!r} matches")
             if reasons:
                 unmatched_videos[path] = "; ".join(reasons)
         for pid, job in discover_jobs(cfg, root).items():
             jobs_by_pid.setdefault(pid, []).append(job)
-            videos_by_pid.setdefault(pid, []).extend(job.mom + job.child + job.both)
+            videos_by_pid.setdefault(pid, []).extend(job.files + job.both)
         for participant_dir in root.iterdir():
             if participant_dir.is_dir():
                 if valid_participant_id(cfg, participant_dir.name):
@@ -210,16 +221,16 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
         if discovery is None and outcome.status != S.SUCCESS:
             no_match[pid] = (outcome.message or "participant source folder is missing", files)
         if discovery is not None and discovery.problem is None:
-            matched = sorted(discovery.mom + discovery.child, key=lambda p: p.name.lower())
+            matched = sorted(discovery.files, key=lambda p: p.name.lower())
             if outcome.kind == "skipped" and outcome.status == S.SUCCESS:
                 already_synced[pid] = matched
             elif outcome.kind == "dry":
                 will_sync[pid] = matched
             unmatched = [path for path in videos_by_pid.get(pid, []) if path not in matched]
             if unmatched:
-                no_match[pid] = ("video does not match the configured mother or child pattern", unmatched)
+                no_match[pid] = ("video does not match a configured camera pattern", unmatched)
         elif discovery is not None:
-            no_match[pid] = (outcome.message or "no unique mother/child video pair", videos_by_pid.get(pid, []))
+            no_match[pid] = (outcome.message or "no unique required camera set", videos_by_pid.get(pid, []))
 
         unsupported = []
         source_dirs = {p.parent for p in files} | set(folders)
@@ -228,7 +239,7 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
                 if (not path.is_file() or is_junk_file(path.name) or is_transit_file(path.name)):
                     continue
                 stem = path.stem.lower()
-                if ((cfg.mom_pattern.lower() in stem or cfg.child_pattern.lower() in stem)
+                if (cfg.matching_roles(stem)
                         and path.suffix.lower() not in cfg.video_extensions):
                     unsupported.append(path)
         if unsupported:
@@ -236,7 +247,7 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
 
         if outcome.status != "WOULD_PROCESS" and outcome.status not in (
                 S.SUCCESS, S.MISSING_FILES, S.AMBIGUOUS_FILES, S.INVALID_ID):
-            blocked_files = (sorted(discovery.mom + discovery.child, key=lambda p: p.name.lower())
+            blocked_files = (sorted(discovery.files, key=lambda p: p.name.lower())
                              if discovery is not None and discovery.problem is None else files)
             blocked[pid] = (f"{outcome.status}: {outcome.message}".rstrip(": "),
                             blocked_files)
@@ -324,11 +335,11 @@ def record_first_observations(cfg: cfgmod.Config, summary: Summary) -> None:
             continue
         source = next(((root, found[outcome.pid]) for root, found in jobs.items()
                        if outcome.pid in found and not found[outcome.pid].problem
-                       and found[outcome.pid].mom), None)
+                       and found[outcome.pid].files), None)
         if source is None:
             continue
         root, job = source
-        folder = job.mom[0].parent
+        folder = job.files[0].parent
         files = observer._files_under(folder)
         if not files:
             continue
@@ -397,11 +408,13 @@ def _main(argv=None) -> int:
         try:
             config_path = setup_project(
                 followup_root, config_path, overwrite=overwrite, source_config=args.config,
+                require_all=args.require_all,
             )
         except (OSError, ValueError, cfgmod.ConfigError) as exc:
             print(f"SETUP ERROR: {exc}", file=sys.stderr)
             return 3
         print(f"Created {config_path} and initialized followup folders under {followup_root}")
+        print("Camera settings use ordered pattern alias lists; review their names and order before processing.")
         print("Review the generated config and edit tool paths if needed before running the pipeline.")
         return 0
     if args.config is not None:
@@ -422,6 +435,8 @@ def _main(argv=None) -> int:
         cfg.followup_root = run_directory
     if args.workers is not None:
         cfg.max_parallel_pairs = args.workers
+    if args.require_all is not None:
+        cfg.require_all = args.require_all
     if args.manual_offset is not None and not (args.participant and len(args.participant) == 1):
         print("CONFIG ERROR: --manual-offset requires exactly one --participant", file=sys.stderr)
         return 3
@@ -504,7 +519,7 @@ def _main(argv=None) -> int:
         videos_by_participant: dict[str, list[Path]] = {}
         for root in (cfg.inbox_dir, cfg.raw_dir):
             for pid, job in discover_jobs(cfg, root).items():
-                videos_by_participant.setdefault(pid, []).extend(job.mom + job.child + job.both)
+                videos_by_participant.setdefault(pid, []).extend(job.files + job.both)
         unstable = [outcome for outcome in summary.outcomes if outcome.status == S.WAITING_FOR_STABILITY]
         log.info("Unstable videos (%d participant folder(s)):", len(unstable))
         for outcome in unstable:

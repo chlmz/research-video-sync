@@ -96,11 +96,12 @@ The keys below are the complete set accepted by the current Python pipeline. Def
 | `synced` | `02_SYNCED` | Synchronized output videos. |
 | `logs_qc` | `99_LOGS_QC` | State files, CSV, logs and the run lock. |
 | `participant_id_regex` | `^ID\\d{4,8}$` | Full-match pattern for IDs. In JSON, escape `\` as `\\`; for example, use `"^#\\d{4,8}$"` for IDs such as `#0000`. |
-| `mom_pattern` | `_mom` | Case-insensitive substring marking a mother video. |
-| `child_pattern` | `_child` | Case-insensitive substring marking a child video; must differ from `mom_pattern`. |
+| `pattern` | `mom`, `teen`, `3rd` in new setups | Ordered camera names mapped to a match string or alias list. Names also determine output suffixes and grid positions. Plain strings are case-insensitive substrings; wildcard strings match the whole filename stem. |
+| `require_all` | `false` | If true, skip sets missing any configured camera; otherwise sync any two or more present cameras in config order. Override per run with `--require-all` or `--no-require-all`; with `--setup`, the override is saved. |
+| `mom_pattern`, `child_pattern` | `_mom`, `_child` | Legacy two-camera settings, used only when `pattern` is absent. Legacy outputs retain `mom` / `child` suffixes. |
 | `video_description` | `null` | Optional filename label inserted after the ID for both synchronized videos and optional side-by-side output. A non-null label may contain letters, digits, single spaces, `_` or `-` between alphanumeric segments (maximum 80 characters); spaces become underscores. Changing it for completed pairs requires `--reprocess`. |
 | `video_extensions` | `[".mp4", ".avi", ".mov", ".mkv"]` | Accepted source extensions; matching is case-insensitive. |
-| `create_side_by_side` | `true` | Also create `<ID>[_description]_side_by_side.mp4` (large). Disable it before processing if this extra output is not wanted. |
+| `create_side_by_side` | `true` | Create `<ID>[_description]_side_by_side.mp4` with every present camera in a two-column grid (odd final cell black). Legacy configs retain the old two-panel layout. |
 | `require_approval` | `true` | Prompt for `yes` on real runs with eligible videos. A report with no eligible videos does not prompt. Set to `false` for unattended runs. |
 | `require_ready_marker` | `false` | Require a `READY.txt` marker for incoming material when enabled. |
 | `ready_marker_name` | `READY.txt` | Name of that marker file. |
@@ -145,8 +146,11 @@ For WCHADS data, change the config.json to:
 
 ```json
   "participant_id_regex": "^#\\d{4,8}$",
-  "mom_pattern": "mum view point",
-  "child_pattern": "teen view point",
+  "pattern": {
+    "mom": ["mum view point", "parent view point"],
+    "teen": ["teen view point"],
+    "3rd": ["third camera"]
+  },
   "create_side_by_side": true
 ```
 
@@ -173,7 +177,17 @@ research-video-sync --config config.json
 
 The default `stability_minutes=0` disables the minimum-age and prior-observation checks. Transfer-in-progress files and the short growth re-check still block processing if files are arriving or changing. Set `stability_minutes` above `0` if you also want a minimum file age and the prior-observation interval.
 
-The pipeline accepts pairs directly in `00_INBOX` or in nested folders. Each participant ID needs exactly one `_mom` and one `_child` video in the same folder; the ID comes from the filenames or, if absent there, the folder path. Multiple ID pairs may share a folder. Source folders are preserved in `01_RAW` and `02_SYNCED`; status and logs are recorded under `99_LOGS_QC`. **Do not edit files in `01_RAW`.**
+The pipeline accepts camera sets directly in `00_INBOX` or in nested folders. Each participant ID needs any two or more configured cameras by default, or all configured cameras when `require_all` is true. All present cameras must match unambiguously in the same folder. Missing-camera sets are reported as `MISSING_FILES` and not processed. The ID comes from the filenames or, if absent there, the folder path. Multiple IDs may share a folder. Source folders are preserved in `01_RAW` and `02_SYNCED`; status and logs are recorded under `99_LOGS_QC`. **Do not edit files in `01_RAW`.**
+
+Cameras synchronize in config order, then all outputs use the shared overlap. See the
+[README multi-camera setup](../README.md#configuring-two-three-or-more-cameras) for aliases,
+custom names such as `dad`, grid examples, and migration from the former TeenCam scripts.
+
+`--setup` always writes `pattern` alias lists, even when `--config-path` points to a legacy
+config. Legacy `mom_pattern` / `child_pattern` values become `mom` / `child` lists without
+changing the source config. The generated config uses shared-overlap trimming; migrating
+participants already processed under a legacy config requires `--reprocess ID`.
+Normal runs still accept legacy configs unchanged.
 
 By default, two pairs synchronize/encode concurrently after coordinated readiness checks and promotion.
 Use `--workers 1` for sequential processing or `--workers N` to override `max_parallel_pairs` for a run.

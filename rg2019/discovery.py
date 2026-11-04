@@ -1,4 +1,4 @@
-"""Participant-id validation and mother/child source discovery.
+"""Participant-id validation and ordered camera source discovery.
 
 Discovery is deliberately strict: it never picks "the first match".  Zero or several
 plausible candidates for either role are reported to the caller, which stops the
@@ -42,42 +42,60 @@ class Discovery:
     mom: list[Path] = field(default_factory=list)
     child: list[Path] = field(default_factory=list)
     both: list[Path] = field(default_factory=list)   # match BOTH patterns -> ambiguous
+    cameras: dict[str, list[Path]] = field(default_factory=dict)
+    require_all: bool = False
+
+    @property
+    def roles(self) -> dict[str, list[Path]]:
+        return self.cameras or {"mom": self.mom, "child": self.child}
+
+    @property
+    def files(self) -> list[Path]:
+        return [path for paths in self.roles.values() for path in paths]
+
+    def add(self, cfg: Config, path: Path) -> None:
+        roles = cfg.matching_roles(path.stem)
+        if len(roles) > 1:
+            self.both.append(path)
+        elif roles:
+            self.roles[roles[0]].append(path)
 
     @property
     def problem(self) -> str | None:
-        """None if exactly one mom and one child; otherwise 'MISSING' or 'AMBIGUOUS'."""
-        if (self.both or len(self.mom) > 1 or len(self.child) > 1
-                or (self.mom and self.child and self.mom[0].parent != self.child[0].parent)):
+        """Require all configured cameras, or any two; all matches remain unambiguous."""
+        if (self.both or any(len(paths) > 1 for paths in self.roles.values())
+                or len({path.parent for path in self.files}) > 1):
             return "AMBIGUOUS"
-        if not self.mom or not self.child:
+        if (sum(bool(paths) for paths in self.roles.values()) < 2
+                or (self.require_all and any(not paths for paths in self.roles.values()))):
             return "MISSING"
         return None
 
     def describe(self) -> str:
         def names(xs):
             return ", ".join(p.name for p in xs) or "none"
-        return (f"mom candidates: [{names(self.mom)}]; child candidates: [{names(self.child)}]"
+        return ("; ".join(f"{role} candidates: [{names(paths)}]" for role, paths in self.roles.items())
                 + (f"; matching both patterns: [{names(self.both)}]" if self.both else ""))
 
 
 def find_sources(cfg: Config, folder: Path) -> Discovery:
-    """Look (non-recursively) for the mother and child videos in `folder`."""
-    d = Discovery()
-    mom_p, child_p = cfg.mom_pattern.lower(), cfg.child_pattern.lower()
+    """Look non-recursively for configured cameras in `folder`."""
+    d = _discovery(cfg)
     for p in sorted(folder.iterdir(), key=lambda x: x.name.lower()):
         if not p.is_file() or is_junk_file(p.name) or is_transit_file(p.name):
             continue
         if p.suffix.lower() not in cfg.video_extensions:
             continue
-        stem = p.stem.lower()
-        is_mom, is_child = mom_p in stem, child_p in stem
-        if is_mom and is_child:
-            d.both.append(p)
-        elif is_mom:
-            d.mom.append(p)
-        elif is_child:
-            d.child.append(p)
+        d.add(cfg, p)
     return d
+
+
+def _discovery(cfg: Config) -> Discovery:
+    if cfg.pattern is None:
+        return Discovery(require_all=cfg.require_all)
+    cameras = {role: [] for role in cfg.camera_patterns}
+    first, second = list(cameras.values())[:2]
+    return Discovery(mom=first, child=second, cameras=cameras, require_all=cfg.require_all)
 
 
 def video_id(cfg: Config, path: Path, root: Path) -> str | None:
@@ -116,13 +134,6 @@ def discover_jobs(cfg: Config, root: Path) -> dict[str, Discovery]:
         pid = video_id(cfg, path, root)
         if pid is None:
             continue
-        job = jobs.setdefault(pid, Discovery())
-        stem = path.stem.lower()
-        mom, child = cfg.mom_pattern.lower() in stem, cfg.child_pattern.lower() in stem
-        if mom and child:
-            job.both.append(path)
-        elif mom:
-            job.mom.append(path)
-        elif child:
-            job.child.append(path)
+        job = jobs.setdefault(pid, _discovery(cfg))
+        job.add(cfg, path)
     return jobs

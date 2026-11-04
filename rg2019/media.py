@@ -193,7 +193,8 @@ def extract_audio(cfg: Config, src: Path, dst_raw: Path, rate: int) -> np.ndarra
     return np.memmap(dst_raw, dtype="<i2", mode="r")
 
 
-def _encode_cmd(cfg: Config, src: Path, dst: Path, trim: float, copy: bool) -> list[str]:
+def _encode_cmd(cfg: Config, src: Path, dst: Path, trim: float, copy: bool,
+                duration: float | None = None) -> list[str]:
     e = cfg.encode
     cmd = [cfg.ffmpeg, "-nostdin", "-y", "-v", "error"]
     if trim > 0:
@@ -201,6 +202,8 @@ def _encode_cmd(cfg: Config, src: Path, dst: Path, trim: float, copy: bool) -> l
         # preceding keyframe and discards frames/samples up to the requested time).
         cmd += ["-ss", f"{trim:.6f}"]
     cmd += ["-i", str(src), "-map", "0:v:0", "-map", "0:a:0"]
+    if duration is not None:
+        cmd += ["-t", f"{duration:.6f}"]
     if copy:
         cmd += ["-c", "copy"]
     else:
@@ -218,20 +221,21 @@ def can_copy(info: MediaInfo) -> bool:
     return info.video_codec in COPY_VIDEO and info.audio_codec in COPY_AUDIO
 
 
-def encode(cfg: Config, src: Path, dst_partial: Path, trim: float, info: MediaInfo) -> str:
+def encode(cfg: Config, src: Path, dst_partial: Path, trim: float, info: MediaInfo,
+           duration: float | None = None) -> str:
     """Write the synced video for one camera to `dst_partial`.  Returns "copy" or "reencode".
 
     Decision: the camera that needs no trimming is stream-copied (no quality loss, no time)
     when its codecs are MP4-compatible; if copying fails we fall back to re-encoding.  The
     trimmed camera is always re-encoded because trimming accuracy matters more than speed.
     """
-    if trim <= 0 and cfg.encode.copy_untrimmed_when_possible and can_copy(info):
+    if duration is None and trim <= 0 and cfg.encode.copy_untrimmed_when_possible and can_copy(info):
         try:
             _run(_encode_cmd(cfg, src, dst_partial, 0.0, True), f"stream copy {src.name}")
             return "copy"
         except MediaError:
             dst_partial.unlink(missing_ok=True)
-    _run(_encode_cmd(cfg, src, dst_partial, trim, False), f"encode {src.name}")
+    _run(_encode_cmd(cfg, src, dst_partial, trim, False, duration), f"encode {src.name}")
     return "reencode"
 
 
@@ -244,3 +248,29 @@ def side_by_side(cfg: Config, mom: Path, child: Path, dst_partial: Path) -> None
           "-c:v", e.video_codec, "-preset", e.preset, "-crf", str(e.crf), "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-b:a", e.audio_bitrate, "-movflags", "+faststart", "-f", "mp4",
           str(dst_partial)], "side-by-side encode")
+
+
+def camera_grid(cfg: Config, cameras: list[Path], dst_partial: Path) -> None:
+    """Render config-ordered cameras into two equal columns, filling unused cells black."""
+    if len(cameras) < 2:
+        raise MediaError("camera grid requires at least two recordings")
+    cmd = [cfg.ffmpeg, "-nostdin", "-y", "-v", "error", "-filter_complex_threads", "1"]
+    for path in cameras:
+        cmd += ["-i", str(path)]
+    filters = [
+        f"[{index}:v:0]setpts=PTS-STARTPTS,fps=30,"
+        f"scale=640:360:force_original_aspect_ratio=decrease,"
+        f"pad=640:360:(ow-iw)/2:(oh-ih)/2,setsar=1[v{index}]"
+        for index in range(len(cameras))
+    ]
+    layout = "|".join(f"{index % 2 * 640}_{index // 2 * 360}" for index in range(len(cameras)))
+    filters.append("".join(f"[v{index}]" for index in range(len(cameras)))
+                   + f"xstack=inputs={len(cameras)}:layout={layout}:fill=black:shortest=1[v]")
+    filters.append("".join(f"[{index}:a:0]" for index in range(len(cameras)))
+                   + f"amix=inputs={len(cameras)}:duration=shortest[a]")
+    e = cfg.encode
+    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[a]",
+            "-c:v", e.video_codec, "-preset", e.preset, "-crf", str(e.crf), "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", e.audio_bitrate, "-movflags", "+faststart", "-f", "mp4",
+            str(dst_partial)]
+    _run(cmd, "camera grid encode")

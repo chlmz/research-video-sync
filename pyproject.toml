@@ -19,6 +19,7 @@ test = ["pytest>=7", "pytest-cov>=7", "build>=1", "setuptools>=68", "wheel"]
 
 [project.scripts]
 research-video-sync = "rg2019.cli:main"
+research-video-sync-teencam = "rg2019.cli:main"
 
 [tool.setuptools]
 packages = ["rg2019"]

@@ -3,7 +3,7 @@
 [![CI](https://github.com/sgbstats/research-video-sync/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sgbstats/research-video-sync/actions/workflows/ci.yml)
 [![Combined coverage baseline (2026-10-08): 88.6%](https://img.shields.io/badge/coverage%20baseline-88.6%25-green)](#coverage-assessment-2026-10-08)
 
-Audio-based synchronisation of the two camera recordings (mother / child) of the RG2019 follow-up
+Audio-based synchronisation of two or more camera recordings of the RG2019 follow-up
 study, designed for a **Synology-Drive-synchronised project folder** on a private Windows workstation.
 
 > **Production = the installable `research-video-sync` command (v2).** The `rg2019` Python module and `pipeline_rg2019.py` script remain available for compatibility.
@@ -24,9 +24,11 @@ research-video-sync --setup "D:\RG2019_CAMERAS\FOLLOWUP_2026"
 notepad "D:\RG2019_CAMERAS\FOLLOWUP_2026\config.json"
 ```
 
-Place each participant's mother and child recordings in a folder such as
+Place each participant's camera recordings in a folder such as
 `D:\RG2019_CAMERAS\FOLLOWUP_2026\00_INBOX\ID12345`, with filenames containing
-`_mom` and `_child` respectively (or adjust the patterns in the config). Folders are preserved (but not strictly necessary), and videos are only matched if they are in the same folder.
+`_mom` and `_teen` respectively (the default aliases also accept `_mum` and `_child`).
+Add an optional `_3rd` recording, or configure any other camera names using `pattern` below.
+Folders are preserved (but not strictly necessary), and videos are only matched if they are in the same folder.
 
 Let transfers finish, then:
 
@@ -42,6 +44,95 @@ Both commands use **`D:\RG2019_CAMERAS\FOLLOWUP_2026\config.json`**, regardless 
 current directory. Originals are moved into `01_RAW`, synced videos are written to
 `02_SYNCED`, and status/logs are stored in `99_LOGS_QC`, under the target folder with
 the default configuration.
+
+## Configuring two, three, or more cameras
+
+All synchronization and merging runs through **`research-video-sync`** (or `python -m rg2019`),
+with the normal approval, stability checks, RAW promotion, QC, locking, and resume behavior.
+Use `--setup` as above to create a new config. In an existing config, replace `mom_pattern` and
+`child_pattern` with one ordered `pattern` object of JSON alias lists,
+including lists for cameras with only one alias, for example:
+
+```json
+"pattern": {
+  "dad": ["_dad", "_papa"],
+  "teen": ["_teen", "_child"],
+  "room": ["_3rd", "third camera"],
+  "door": ["_door"]
+}
+```
+
+These are settings inside the existing JSON config, not a replacement for the whole file.
+Each key is a filename-safe camera name, also used in output names: `dad` produces
+`ID12345_dad_synced.mp4`. The names are arbitrary; no camera is required to be called `mom`,
+`teen`, or `3rd`. Each value is one match string or a list of aliases. Plain strings are
+case-insensitive filename-stem substrings. Strings containing `*`, `?`, or `[` are
+case-insensitive glob patterns against the whole stem: `*dad` matches a stem ending in `dad`,
+while `*dad*` also matches `dad` in the middle. Do not include the video extension in a pattern.
+
+**Order matters.** By default, `"require_all": false` allows any two or more configured
+cameras to be present, including when the first configured camera is absent.
+Set `"require_all": true` to skip participants missing any configured camera.
+Every camera that is present must have exactly one unambiguous match in the same folder.
+A file matching multiple camera names, duplicate matches, or recordings split across folders
+requires manual review; no file is chosen automatically.
+The first two present cameras are synchronized first. Each subsequent camera is matched against already
+aligned cameras in config order, using the first result that passes the audio quality checks.
+If a present camera cannot be aligned, the whole participant stops before producing videos.
+All outputs are trimmed to the same shared start and duration.
+
+Override the config for one run with `--require-all` or `--no-require-all`:
+
+```powershell
+python -m rg2019 "D:\RG2019_CAMERAS\FOLLOWUP_2026" --require-all
+python -m rg2019 "D:\RG2019_CAMERAS\FOLLOWUP_2026" --no-require-all
+```
+
+Run overrides do not rewrite the config. With `--setup`, these flags instead save the chosen
+setting in the generated config. Missing-camera sets are reported as `MISSING_FILES` and
+left unprocessed; ambiguous matches remain blocked regardless of this option.
+
+With `"create_side_by_side": true`, the combined `ID12345_side_by_side.mp4` includes **all**
+matched cameras in config order, left to right and top to bottom, using two columns.
+Each cell is 640x360 with aspect-preserving letterboxing. Three cameras produce a 2x2 grid
+with a black bottom-right cell; four cameras fill a 2x2 grid; five produce three rows with
+the last cell black. Audio from all cameras is mixed. Set this option to `false` for individual
+synchronized outputs only.
+
+Example source files for three cameras:
+
+```text
+00_INBOX\ID12345\
+    ID12345_dad.mp4
+    ID12345_teen.mp4
+    ID12345_3rd.mp4
+```
+
+Use the normal commands for any camera count:
+
+```powershell
+python -m rg2019 "D:\RG2019_CAMERAS\FOLLOWUP_2026" --dry-run
+python -m rg2019 "D:\RG2019_CAMERAS\FOLLOWUP_2026"
+```
+
+`--participant ID12345` selects one participant; `--reprocess ID12345` archives existing outputs
+and re-discovers/re-aligns the RAW cameras after changing their names, order, or membership.
+Rerunning without `--reprocess` resumes compatible checkpoints and never silently reuses outputs
+for a different camera layout. `--manual-offset` is available only for two-camera sets.
+Completed individual outputs are checkpointed so an interrupted grid encode can resume.
+
+**Existing configs and migration:** configs without `pattern` still accept the old
+`mom_pattern` / `child_pattern` keys and retain
+their original two-camera behavior/output names (`mom_synced` / `child_synced`).
+An explicit `pattern` mapping takes precedence over these legacy matching settings.
+New setup defaults use `mom`, `teen`, and an optional `3rd`; edit these freely.
+For IDs such as `#2181`, set `"participant_id_regex": "^#\\d{2,8}$"` and quote the ID on
+the command line. Ensure `video_extensions` includes all formats you use (add `.m4v` if needed).
+There are no automatic TeenCam label aliases outside the configured `pattern` values.
+The former standalone TeenCam scripts, `--root` / `--apply` arguments, and `02_SYNCED_3CAM`
+workflow are replaced by the normal command, `--dry-run`, and configured `synced` folder.
+The old `research-video-sync-teencam` executable remains only as an alias for the normal CLI
+and takes its arguments. Previously generated `02_SYNCED_3CAM` files are left untouched.
 
 ## 1. Prerequisites and installation
 
@@ -94,7 +185,17 @@ notepad config.json
 The installed `research-video-sync` command and `python -m rg2019` are equivalent. The
 `pipeline_rg2019.py` script remains available for existing scheduled tasks.
 
-`--setup` creates `config.json` inside the target follow-up directory, sets `followup_root`, and creates the configured folder layout. By default, setup uses the packaged example config. If `--config-path SOURCE` is supplied, its settings are copied into the target's `config.json` (with `followup_root` set to the target); the source file is left unchanged. `--config` and `--config_path` are aliases. If a destination config already exists, setup asks before replacing it.
+`--setup` creates `config.json` inside the target follow-up directory, sets `followup_root`, and creates the configured folder layout. By default, setup uses the packaged example config. If `--config-path SOURCE` is supplied, its settings are copied into the target's `config.json` (with `followup_root` set to the target); the source file is left unchanged. All generated configs use ordered `pattern` alias lists: legacy `mom_pattern` / `child_pattern` values become `{"mom": ["..."], "child": ["..."]}`, preserving their matching strings and output suffixes. `--config` and `--config_path` are aliases. If a destination config already exists, setup asks before replacing it.
+
+Setup conversion opts the generated config into multi-camera processing, including shared-overlap trimming.
+If the target already contains processed participants, review the generated config and use `--reprocess ID`
+to migrate those participants; normal runs will not reuse legacy outputs silently.
+Loading an existing legacy config without running setup still preserves the old behavior.
+
+If a test installation still generates the old fields, reinstall from the updated checkout using
+`python -m pip install .`, then run `python -m rg2019 --setup ".\test-new-pattern"`.
+Use the same Python environment for both commands. The module form avoids an older executable elsewhere
+on `PATH`; an existing config is not upgraded merely by running the pipeline.
 
 Run without arguments to process the current directory, or pass a directory path to process that directory:
 
@@ -146,7 +247,7 @@ Pair processing now defaults to **two concurrent pairs**, including existing con
 FOLLOWUP_2026/                      <- followup_root (whole tree synced to the Synology NAS)
 ├── 00_INBOX/IDxxxx/                <- written by the shared university PC (may still be syncing!)
 ├── 01_RAW/IDxxxx/                  <- preserved originals: ONLY original material, never modified
-├── 02_SYNCED/IDxxxx/               <- IDxxxx_mom_synced.mp4, IDxxxx_child_synced.mp4 (+ optional side_by_side)
+├── 02_SYNCED/IDxxxx/               <- IDxxxx_<camera>_synced.mp4 (+ optional side_by_side grid)
 ├── 03_WORKSPACE/  04_FACEREADER_OUTPUT/  05_ANALYTIC_DATA/     (not touched by this pipeline)
 └── 99_LOGS_QC/                     <- ALL pipeline state, logs and QC files
     ├── state/IDxxxx.json           <- per-participant state (source of truth)
@@ -188,13 +289,15 @@ Daily flow per participant:
 | `followup_root` | *(required)* | e.g. `D:\\RG2019_CAMERAS\\FOLLOWUP_2026` |
 | `inbox`, `raw`, `synced`, `logs_qc` | `00_INBOX`, `01_RAW`, `02_SYNCED`, `99_LOGS_QC` | folder names under the root (INBOX and RAW must be on the same volume) |
 | `participant_id_regex` | `^ID\d{4,8}$` | valid participant folder names (e.g. `ID100392`) |
-| `mom_pattern`, `child_pattern` | `_mom`, `_child` | case-insensitive substring of the file name |
+| `pattern` | setup uses `mom`, `teen`, `3rd` | ordered camera-name to match string/alias list; see multi-camera setup above |
+| `require_all` | `false` | require every configured camera if true; otherwise any two or more; override with `--require-all` / `--no-require-all` |
+| `mom_pattern`, `child_pattern` | `_mom`, `_child` | legacy two-camera configs only, when `pattern` is absent |
 | `video_extensions` | mp4, avi, mov, mkv | |
 | `require_ready_marker` | `false` | if `true`, `00_INBOX/IDxxxx/READY.txt` must exist |
 | `stability_minutes` | `0` | age rule + prior-observation timer (see below). `0` disables **only those two**: transfer-file blocking and the growth re-check stay active |
 | `stability_recheck_seconds` | `5` | re-stat files after this pause to catch files still growing; active **even when `stability_minutes` is `0`** (set this to `0` to switch it off) |
 | `stability_requires_prior_observation` | `true` | files must also have been seen unchanged by a *previous run* (see below) |
-| `create_side_by_side` | **`true`** | also create `IDxxxx_side_by_side.mp4` (large) |
+| `create_side_by_side` | **`true`** | also create `IDxxxx_side_by_side.mp4`: all configured/present cameras in a two-column grid; legacy configs retain the original two-panel layout |
 | `video_description` | `null` | optional filename-safe label; `"pilot visit"` produces `IDxxxx_pilot_visit_mom_synced.mp4` (and labels child and side-by-side outputs) |
 | `require_approval` | `true` | require typing `yes` after the pre-run report on real runs |
 | `max_attempts` | `3` | automatic retries for `SYNC_FAILED`/`ENCODE_FAILED` |
@@ -215,11 +318,36 @@ research-video-sync --config config.json --dry-run
 research-video-sync --config config.json
 ```
 
-Other options: `--setup FOLLOWUP_ROOT` (create config and folder structure), `--participant IDxxxx` (repeatable; restrict to those IDs), `--reprocess IDxxxx`, `--manual-offset SECONDS`, `--yolo` (skip approval and set stability minutes to zero for this invocation),
-`--workers N` (override the pair limit without editing config), `--log-level DEBUG`. Exit code `0` = fine, `1` = real run cancelled at approval, `2` = something needs manual review/failed, `3` = config/tool/lock problem, `130` = interrupted.
+### Complete command-line reference
+
+These options apply to `research-video-sync`, `python -m rg2019`, and the compatibility
+`pipeline_rg2019.py` entry point. Run `python -m rg2019 --help` for the installed version's help.
+
+| Argument or flag | Effect |
+|---|---|
+| `DIRECTORY` | Optional positional data directory. Loads its `config.json` and uses it as the data root; defaults to the current directory. Cannot be combined with `--setup`. |
+| `--config PATH`, `--config-path PATH`, `--config_path PATH` | Equivalent aliases. Load this config instead of `DIRECTORY\config.json` and use its `followup_root`. With `--setup`, use it as the source template without changing the source file. |
+| `--setup FOLLOWUP_ROOT` | Create the target config and folder layout. Generated camera settings use `pattern` alias lists. Prompts before replacing an existing target config. |
+| `--dry-run` | Preview readiness, source matching and planned processing. Does not move, encode, or write config/state/log files. |
+| `--participant ID` | Process only this participant; repeat the flag to select multiple IDs. Quote IDs containing special characters, such as `--participant "#2181"`. |
+| `--reprocess ID` | Archive previous outputs and recompute this participant from RAW. Repeat for multiple IDs. This is not a resume flag: normal reruns reuse checkpoints. |
+| `--manual-offset SECONDS` | Use a reviewed offset with exactly one `--participant` and exactly two present cameras. Positive values trim the first present camera; negative values trim the second. Changing an offset after outputs exist requires `--reprocess`. |
+| `--require-all` | Override the config to require a match for every configured camera; incomplete sets are not processed. With `--setup`, save `require_all: true`. |
+| `--no-require-all` | Override the config to allow any two or more configured cameras, preserving config order. With `--setup`, save `require_all: false`. |
+| `--workers N` | Override `max_parallel_pairs` for this run. Must be a positive integer; `1` processes participants sequentially. |
+| `--yolo` | Skip approval and set stability minutes to zero for this run. Keeps transfer-file detection, growth re-checks, camera requirements, integrity checks and locking. |
+| `--log-level INFO` / `--log-level DEBUG` | Set logging verbosity; default is `INFO`. |
+| `--version` | Print the installed package version and exit. |
+| `-h`, `--help` | Print all command-line arguments and exit. |
+
+Run-time overrides do not rewrite `config.json`; the documented `--setup` overrides are saved
+to the generated config. When both camera-policy flags are supplied, the last one wins.
+
+Exit code `0` = fine, `1` = real run cancelled at approval or setup overwrite declined,
+`2` = something needs manual review/failed, `3` = config/tool/lock problem, `130` = interrupted.
 The run ends with a summary (Newly completed / Skipped completed / Waiting / Manual review / Failed, with IDs).
 `--yolo` still prints the pre-run report and retains transfer-file detection, the configured growth re-check, and the run lock. Changing `video_description` for existing outputs requires `--reprocess`; prior files are archived.
-The pre-run report lists videos under INBOX and RAW that have no unique participant ID matching `participant_id_regex` or match neither `mom_pattern` nor `child_pattern`, including files in nested folders. Each entry shows its path and the unmatched patterns; mother/child patterns remain case-insensitive substrings, not regular expressions. With `--participant`, this list is restricted to videos identified as belonging to the selected participants.
+The pre-run report lists videos under INBOX and RAW that have no unique participant ID matching `participant_id_regex` or match none of the configured camera patterns, including files in nested folders. Each entry shows its path and the unmatched patterns. Legacy mother/child patterns remain case-insensitive substrings, not regular expressions. With `--participant`, this list is restricted to videos identified as belonging to the selected participants.
 If the pre-run report finds no videos eligible to sync (including when all are already synced or waiting), the command prints the report and exits without asking for approval or starting a full run. It records any first stability observations so a later run can proceed. Review problems still return exit code `2`.
 Daily scheduling: [docs/WINDOWS_TASK_SCHEDULER.md](docs/WINDOWS_TASK_SCHEDULER.md).
 
