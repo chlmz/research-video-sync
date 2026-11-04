@@ -45,11 +45,30 @@ the default configuration.
 
 ## Optional TeenCam two- or three-camera sync
 
-For the separate TeenCam batch workflow, place each participant's parent, teen, and optional third-camera
-recordings together in `00_INBOX`. The filenames must start with the participant ID and
-include a recognizable camera label (`parent/mum/mom view point`, `teen view point`, or
-`third camera`); the configured `mom_pattern` and `child_pattern` are also accepted. The configured
-`participant_id_regex` must accept the ID.
+The TeenCam commands reuse the existing `config.json`; they do not add or require new config
+keys. Create the usual config with `research-video-sync --setup "D:\RG2019_CAMERAS\FOLLOWUP_2026"`
+and edit it before running TeenCam. The important difference is that the example config's default
+`participant_id_regex` (`^ID\d{4,8}$`) does **not** accept TeenCam IDs such as `#2181`. Change it to
+match the IDs actually used in your filenames, for example:
+
+```json
+"participant_id_regex": "^#?\\d{2,8}$"
+```
+
+Keep the other existing settings appropriate for your recordings:
+
+| Config setting | TeenCam use |
+| --- | --- |
+| `mom_pattern`, `child_pattern` | Custom filename substrings for parent and teen files. Built-in labels `parent/mum/mom view point` and `teen view point` are also recognized. |
+| `video_extensions` | Must include each input format, such as `.avi`, `.mp4`, `.mov`, `.mkv`, or `.m4v`. The example config does not include `.m4v`. |
+| `inbox`, `raw` | Source folders searched under the selected root. The batch command scans `inbox`; the per-participant command checks `raw` first, then `inbox`. |
+| `sync`, `encode`, `ffmpeg`, `ffprobe` | Existing synchronization quality, encoding, and media-tool settings are reused. |
+| `create_side_by_side` | Controls the optional parent/teen side-by-side output. |
+
+The `--root` argument overrides `followup_root` for the TeenCam run; relative `inbox` and `raw`
+paths remain under that root. Outputs go to `02_SYNCED_3CAM\<participant ID>` (separate from the
+standard `synced` folder). Put all of one participant's recordings in the same folder and make
+sure each filename starts with the participant ID and has exactly one camera label.
 
 Run a preview first, then add `--apply` only after checking the detected cameras and offsets:
 
@@ -64,10 +83,8 @@ For a participant already in `01_RAW`, run the per-participant command directly 
 python -m sync_three_cameras_v2 --config "D:\RG2019_CAMERAS\FOLLOWUP_2026\config.json" --id "#2181"
 ```
 
-This workflow leaves originals untouched and writes one synchronized file per detected camera
-under `02_SYNCED_3CAM\<participant ID>`. When enabled in the config, it also creates a parent/teen
-side-by-side video. Files from a participant must be in one shared folder; ambiguous or duplicate
-camera sets are skipped. This is separate from the daily `research-video-sync` pipeline.
+This workflow leaves originals untouched, skips ambiguous or duplicate sets, and is separate from
+the daily `research-video-sync` pipeline.
 
 ## 1. Prerequisites and installation
 
