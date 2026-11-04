@@ -340,8 +340,89 @@ These options apply to `research-video-sync`, `python -m rg2019`, and the compat
 | `--version` | Print the installed package version and exit. |
 | `-h`, `--help` | Print all command-line arguments and exit. |
 
-Run-time overrides do not rewrite `config.json`; the documented `--setup` overrides are saved
-to the generated config. When both camera-policy flags are supplied, the last one wins.
+Run-time overrides do not rewrite `config.json`; all config overrides used with `--setup` are
+saved to the generated config. If opposing boolean flags or repeated scalar flags are supplied,
+the last one wins. `--yolo` takes precedence over approval and stability-minute overrides.
+
+### Config field to CLI flag mapping
+
+Every config field has a flag. Booleans have both positive and negative forms, for example
+`--require-approval` / `--no-require-approval`. Numbers use numeric arguments; other scalar
+values use text arguments. Quote paths containing spaces. Nested settings use `--sync-*`
+and `--encode-*`. Flags retain the same config validation and safety checks as file settings.
+
+| Config field | CLI flag |
+|---|---|
+| `followup_root` | `--followup-root PATH` |
+| `inbox` | `--inbox PATH` |
+| `raw` | `--raw PATH` |
+| `synced` | `--synced PATH` |
+| `logs_qc` | `--logs-qc PATH` |
+| `participant_id_regex` | `--participant-id-regex TEXT` |
+| `mom_pattern` | `--mom-pattern TEXT` (legacy configs without `pattern`) |
+| `child_pattern` | `--child-pattern TEXT` (legacy configs without `pattern`) |
+| `pattern` | `--pattern JSON` |
+| `require_all` | `--require-all` / `--no-require-all` |
+| `video_description` | `--video-description TEXT` (`null` clears it) |
+| `video_extensions` | `--video-extensions JSON` |
+| `require_ready_marker` | `--require-ready-marker` / `--no-require-ready-marker` |
+| `ready_marker_name` | `--ready-marker-name TEXT` |
+| `stability_minutes` | `--stability-minutes NUMBER` |
+| `stability_recheck_seconds` | `--stability-recheck-seconds NUMBER` |
+| `stability_requires_prior_observation` | `--stability-requires-prior-observation` / `--no-stability-requires-prior-observation` |
+| `create_side_by_side` | `--create-side-by-side` / `--no-create-side-by-side` |
+| `require_approval` | `--require-approval` / `--no-require-approval` |
+| `max_attempts` | `--max-attempts INTEGER` |
+| `max_parallel_pairs` | `--max-parallel-pairs INTEGER` (alias `--workers`) |
+| `lock_stale_hours` | `--lock-stale-hours NUMBER` |
+| `ffmpeg` | `--ffmpeg PATH_OR_NAME` |
+| `ffprobe` | `--ffprobe PATH_OR_NAME` |
+| `sync` | `--sync JSON` (merge supplied fields into existing settings) |
+| `sync.sample_rate` | `--sync-sample-rate INTEGER` |
+| `sync.max_lag_seconds` | `--sync-max-lag-seconds NUMBER` |
+| `sync.window_seconds` | `--sync-window-seconds NUMBER` |
+| `sync.coarse_windows` | `--sync-coarse-windows INTEGER` |
+| `sync.coarse_tolerance_seconds` | `--sync-coarse-tolerance-seconds NUMBER` |
+| `sync.fine_windows` | `--sync-fine-windows INTEGER` |
+| `sync.fine_search_seconds` | `--sync-fine-search-seconds NUMBER` |
+| `sync.fine_tolerance_seconds` | `--sync-fine-tolerance-seconds NUMBER` |
+| `sync.min_ncc` | `--sync-min-ncc NUMBER` |
+| `sync.min_peak_ratio` | `--sync-min-peak-ratio NUMBER` |
+| `sync.min_agreeing_windows` | `--sync-min-agreeing-windows INTEGER` |
+| `sync.min_agree_fraction` | `--sync-min-agree-fraction NUMBER` |
+| `sync.min_overlap_seconds` | `--sync-min-overlap-seconds NUMBER` |
+| `sync.silence_rms` | `--sync-silence-rms NUMBER` |
+| `encode` | `--encode JSON` (merge supplied fields into existing settings) |
+| `encode.video_codec` | `--encode-video-codec TEXT` |
+| `encode.preset` | `--encode-preset TEXT` |
+| `encode.crf` | `--encode-crf INTEGER` |
+| `encode.audio_bitrate` | `--encode-audio-bitrate TEXT` |
+| `encode.copy_untrimmed_when_possible` | `--encode-copy-untrimmed-when-possible` / `--no-encode-copy-untrimmed-when-possible` |
+| `encode.min_trim_seconds` | `--encode-min-trim-seconds NUMBER` |
+| `encode.duration_tolerance_seconds` | `--encode-duration-tolerance-seconds NUMBER` |
+
+JSON flags accept complete JSON values, not comma-separated strings. Use `--pattern null`
+to return to legacy `mom_pattern` / `child_pattern` matching for a run. A non-null `pattern`
+always takes precedence over those legacy fields. An individual nested flag takes precedence
+over the same field in `--sync JSON` / `--encode JSON`, regardless of argument order.
+JSON objects for `sync` / `encode` merge into existing settings; patterns and extension lists
+replace their previous values.
+
+PowerShell example:
+
+```powershell
+python -m rg2019 "D:\RG2019_CAMERAS\FOLLOWUP_2026" --dry-run `
+  --pattern '{"dad":["_dad","_papa"],"teen":["_teen"],"room":["_3rd"]}' `
+  --video-extensions '[".mp4",".mov",".m4v"]' `
+  --sync-max-lag-seconds 180 --encode-preset ultrafast --no-require-all
+```
+
+`DIRECTORY` still selects the config file when no `--config` is given. `--followup-root`
+overrides where that loaded config reads/writes data, not which config is loaded.
+With `--setup`, `--followup-root` overrides the setup destination as well. Loading a valid
+config is still required for normal runs. Changing camera names/layout or output labels on
+previously processed participants still requires reviewed `--reprocess`; flags do not bypass
+RAW integrity, output conflicts, locking or readiness checks.
 
 Exit code `0` = fine, `1` = real run cancelled at approval or setup overwrite declined,
 `2` = something needs manual review/failed, `3` = config/tool/lock problem, `130` = interrupted.

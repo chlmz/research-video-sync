@@ -189,6 +189,11 @@ changing the source config. The generated config uses shared-overlap trimming; m
 participants already processed under a legacy config requires `--reprocess ID`.
 Normal runs still accept legacy configs unchanged.
 
+Every config field can also be overridden by a CLI flag, including individual `sync` and
+`encode` settings. See the [complete flag-to-config mapping](../README.md#config-field-to-cli-flag-mapping)
+for names, JSON values, boolean negative forms and precedence. Run-time overrides do not
+rewrite the config; overrides supplied with `--setup` are saved.
+
 By default, two pairs synchronize/encode concurrently after coordinated readiness checks and promotion.
 Use `--workers 1` for sequential processing or `--workers N` to override `max_parallel_pairs` for a run.
 Dry runs stay sequential and never write checkpoints. Additional workers can increase CPU, memory,
