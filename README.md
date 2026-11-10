@@ -146,33 +146,38 @@ For unattended daily runs on Windows, see the [Task Scheduler guide](docs/WINDOW
   administrator privileges. Explicitly configured executable names or paths must exist;
   a missing custom executable produces an error and is never silently replaced.
 
-Install from a source checkout (recommended until a release is published to PyPI):
+### Stable release (recommended)
+
+Install the published release from PyPI. In PowerShell, create and activate a virtual environment,
+then install the package:
 
 ```powershell
-git clone https://github.com/sgbstats/research-video-sync.git
-cd research-video-sync
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install .
+python -m pip install --upgrade research-video-sync
 ```
 
-On Linux, create and activate the virtual environment with:
+On Linux:
 
 ```bash
-git clone https://github.com/sgbstats/research-video-sync.git
-cd research-video-sync
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install .
+python -m pip install --upgrade research-video-sync
 ```
 
-After a release is published to PyPI, the module can also be installed without cloning the repository:
+### Development version from GitHub
 
-```bash
-python -m pip install research-video-sync
+To try the latest development version from the repository's `main` branch instead of the published
+PyPI release, run this in the same virtual environment:
+
+```powershell
+python -m pip install --upgrade "git+https://github.com/sgbstats/research-video-sync.git@main"
 ```
+
+The GitHub version may include unreleased changes and can be less stable than the PyPI release.
+Use the PyPI installation above for normal use.
 
 Then initialize the machine-specific configuration and folder layout (PowerShell example):
 
@@ -192,8 +197,9 @@ If the target already contains processed participants, review the generated conf
 to migrate those participants; normal runs will not reuse legacy outputs silently.
 Loading an existing legacy config without running setup still preserves the old behavior.
 
-If a test installation still generates the old fields, reinstall from the updated checkout using
-`python -m pip install .`, then run `python -m rg2019 --setup ".\test-new-pattern"`.
+If a test installation still generates the old fields, reinstall the development version from GitHub
+using `python -m pip install --upgrade "git+https://github.com/sgbstats/research-video-sync.git@main"`,
+then run `python -m rg2019 --setup ".\test-new-pattern"`.
 Use the same Python environment for both commands. The module form avoids an older executable elsewhere
 on `PATH`; an existing config is not upgraded merely by running the pipeline.
 
