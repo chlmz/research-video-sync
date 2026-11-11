@@ -54,6 +54,7 @@ class Config:
     mom_pattern: str = "_mom"
     child_pattern: str = "_child"
     pattern: dict[str, str | list[str]] | None = None
+    pattern_mode: str = "auto"
     require_all: bool = False
     video_description: str | None = None
     video_extensions: list[str] = field(default_factory=lambda: [".mp4", ".avi", ".mov", ".mkv"])
@@ -80,12 +81,20 @@ class Config:
                 for role, labels in self.pattern.items()}
 
     def matching_roles(self, stem: str) -> list[str]:
-        """Case-insensitive substrings, or filename-stem globs when wildcards are present."""
-        stem = stem.casefold()
+        """Match camera aliases against the filename stem using the configured mode."""
+        def matches(label: str) -> bool:
+            if self.pattern_mode == "regex":
+                return re.search(label, stem, re.IGNORECASE) is not None
+            text, label = stem.casefold(), label.casefold()
+            if self.pattern_mode == "prefix":
+                return text.startswith(label)
+            if self.pattern_mode == "suffix":
+                return text.endswith(label)
+            return (fnmatch.fnmatchcase(text, label)
+                    if any(char in label for char in "*?[") else label in text)
+
         return [role for role, labels in self.camera_patterns.items()
-                if any(fnmatch.fnmatchcase(stem, label.casefold())
-                       if any(char in label for char in "*?[") else label.casefold() in stem
-                       for label in labels)]
+                if any(matches(label) for label in labels)]
 
     # ---- resolved directories -------------------------------------------------
     def _dir(self, name: str) -> Path:
@@ -183,6 +192,15 @@ def _from_dict(data: dict[str, Any], path_cls: type[PurePath]) -> Config:
             if (not isinstance(values, list) or not values
                     or any(not isinstance(value, str) or not value.strip() for value in values)):
                 raise ConfigError(f"pattern.{role} must be a non-empty string or list of non-empty strings")
+    if cfg.pattern_mode not in ("auto", "prefix", "suffix", "regex"):
+        raise ConfigError("pattern_mode must be auto, prefix, suffix or regex")
+    if cfg.pattern_mode == "regex":
+        for role, labels in cfg.camera_patterns.items():
+            for label in labels:
+                try:
+                    re.compile(label, re.IGNORECASE)
+                except re.error as exc:
+                    raise ConfigError(f"Camera pattern for {role!r} is not a valid regex: {exc}") from exc
     if cfg.video_description is not None:
         if (not isinstance(cfg.video_description, str)
                 or len(cfg.video_description) > 80

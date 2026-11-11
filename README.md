@@ -70,6 +70,34 @@ case-insensitive filename-stem substrings. Strings containing `*`, `?`, or `[` a
 case-insensitive glob patterns against the whole stem: `*dad` matches a stem ending in `dad`,
 while `*dad*` also matches `dad` in the middle. Do not include the video extension in a pattern.
 
+Choose how the person/camera labels are recognized with `pattern_mode`. It applies to every
+alias in `pattern` (or to legacy `mom_pattern` / `child_pattern` when `pattern` is absent).
+All modes ignore case and match the filename **without its extension**; output names are unchanged.
+
+| `pattern_mode` | Example alias | Matches |
+|---|---|---|
+| `auto` (default) | `_dad` or `*dad` | Existing substring/glob behavior, unchanged for old configs |
+| `prefix` | `dad_` | `dad_ID12345.mp4`, not `ID12345_dad.mp4`; labels are literal |
+| `suffix` | `_dad` | `ID12345_dad.mp4`, not `ID12345_dad_extra.mp4`; labels are literal |
+| `regex` | `dad(?=_)` | A regex search anywhere in the stem, including `visit_dad_ID12345.mp4` |
+
+For prefix-labelled files, for example:
+
+```json
+"pattern_mode": "prefix",
+"pattern": {
+  "dad": ["dad_", "papa_"],
+  "teen": ["teen_", "child_"]
+}
+```
+
+For regex matching, set `"pattern_mode": "regex"` and use regexes as aliases.
+Escape backslashes in JSON: `"\\bdad\\b"` represents the regex `\bdad\b`.
+Regex anchors `^` and `$` refer to the beginning and end of the stem; regexes are validated
+before processing. A file matching more than one camera still requires manual review.
+Use `--pattern-mode prefix` (or `suffix`, `regex`, `auto`) to override a run, together with
+`--pattern` if changing aliases. With `--setup`, these choices are saved in the generated config.
+
 **Order matters.** By default, `"require_all": false` allows any two or more configured
 cameras to be present, including when the first configured camera is absent.
 Set `"require_all": true` to skip participants missing any configured camera.
@@ -296,6 +324,7 @@ Daily flow per participant:
 | `inbox`, `raw`, `synced`, `logs_qc` | `00_INBOX`, `01_RAW`, `02_SYNCED`, `99_LOGS_QC` | folder names under the root (INBOX and RAW must be on the same volume) |
 | `participant_id_regex` | `^ID\d{4,8}$` | valid participant folder names (e.g. `ID100392`) |
 | `pattern` | setup uses `mom`, `teen`, `3rd` | ordered camera-name to match string/alias list; see multi-camera setup above |
+| `pattern_mode` | `auto` | camera alias matching: existing substring/glob behavior, literal `prefix`, literal `suffix`, or `regex` search anywhere in the stem |
 | `require_all` | `false` | require every configured camera if true; otherwise any two or more; override with `--require-all` / `--no-require-all` |
 | `mom_pattern`, `child_pattern` | `_mom`, `_child` | legacy two-camera configs only, when `pattern` is absent |
 | `video_extensions` | mp4, avi, mov, mkv | |
@@ -368,6 +397,7 @@ and `--encode-*`. Flags retain the same config validation and safety checks as f
 | `mom_pattern` | `--mom-pattern TEXT` (legacy configs without `pattern`) |
 | `child_pattern` | `--child-pattern TEXT` (legacy configs without `pattern`) |
 | `pattern` | `--pattern JSON` |
+| `pattern_mode` | `--pattern-mode auto` / `prefix` / `suffix` / `regex` |
 | `require_all` | `--require-all` / `--no-require-all` |
 | `video_description` | `--video-description TEXT` (`null` clears it) |
 | `video_extensions` | `--video-extensions JSON` |
@@ -434,7 +464,7 @@ Exit code `0` = fine, `1` = real run cancelled at approval or setup overwrite de
 `2` = something needs manual review/failed, `3` = config/tool/lock problem, `130` = interrupted.
 The run ends with a summary (Newly completed / Skipped completed / Waiting / Manual review / Failed, with IDs).
 `--yolo` still prints the pre-run report and retains transfer-file detection, the configured growth re-check, and the run lock. Changing `video_description` for existing outputs requires `--reprocess`; prior files are archived.
-The pre-run report lists videos under INBOX and RAW that have no unique participant ID matching `participant_id_regex` or match none of the configured camera patterns, including files in nested folders. Each entry shows its path and the unmatched patterns. Legacy mother/child patterns remain case-insensitive substrings, not regular expressions. With `--participant`, this list is restricted to videos identified as belonging to the selected participants.
+The pre-run report lists videos under INBOX and RAW that have no unique participant ID matching `participant_id_regex` or match none of the configured camera patterns, including files in nested folders. Each entry shows its path and the unmatched patterns. Camera labels use `pattern_mode`, including legacy mother/child labels; regular expressions require explicit `regex` mode. With `--participant`, this list is restricted to videos identified as belonging to the selected participants.
 If the pre-run report finds no videos eligible to sync (including when all are already synced or waiting), the command prints the report and exits without asking for approval or starting a full run. It records any first stability observations so a later run can proceed. Review problems still return exit code `2`.
 Daily scheduling: [docs/WINDOWS_TASK_SCHEDULER.md](docs/WINDOWS_TASK_SCHEDULER.md).
 

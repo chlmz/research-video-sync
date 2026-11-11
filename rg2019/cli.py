@@ -311,7 +311,7 @@ def preflight_inventory(cfg: cfgmod.Config, only: list[str] | None = None,
             for path in folder.iterdir():
                 if (not path.is_file() or is_junk_file(path.name) or is_transit_file(path.name)):
                     continue
-                stem = path.stem.lower()
+                stem = path.stem
                 if (cfg.matching_roles(stem)
                         and path.suffix.lower() not in cfg.video_extensions):
                     unsupported.append(path)

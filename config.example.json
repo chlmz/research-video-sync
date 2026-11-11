@@ -13,6 +13,8 @@
     "teen": ["_teen", "_child"],
     "3rd": ["_3rd", "third camera"]
   },
+  "_comment_pattern_mode": "auto keeps substring/glob matching; prefix and suffix match literal labels; regex searches anywhere in the filename without its extension. All modes ignore case.",
+  "pattern_mode": "auto",
   "video_description": null,
   "require_all": false,
 
