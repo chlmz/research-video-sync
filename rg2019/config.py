@@ -1,6 +1,7 @@
 """Configuration loading and validation (pathlib only, Windows-first)."""
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 from dataclasses import dataclass, field, fields
@@ -52,19 +53,48 @@ class Config:
     participant_id_regex: str = r"^ID\d{4,8}$"
     mom_pattern: str = "_mom"
     child_pattern: str = "_child"
+    pattern: dict[str, str | list[str]] | None = None
+    pattern_mode: str = "auto"
+    require_all: bool = False
+    video_description: str | None = None
     video_extensions: list[str] = field(default_factory=lambda: [".mp4", ".avi", ".mov", ".mkv"])
     require_ready_marker: bool = False
     ready_marker_name: str = "READY.txt"
-    stability_minutes: float = 120.0
+    stability_minutes: float = 0.0
     stability_recheck_seconds: float = 5.0
     stability_requires_prior_observation: bool = True
-    create_side_by_side: bool = False
+    create_side_by_side: bool = True
+    require_approval: bool = True
     max_attempts: int = 3               # automatic retries for SYNC_FAILED / ENCODE_FAILED
+    max_parallel_pairs: int = 2
     lock_stale_hours: float = 24.0
     ffmpeg: str = "ffmpeg"
     ffprobe: str = "ffprobe"
     sync: SyncParams = field(default_factory=SyncParams)
     encode: EncodeParams = field(default_factory=EncodeParams)
+
+    @property
+    def camera_patterns(self) -> dict[str, list[str]]:
+        if self.pattern is None:
+            return {"mom": [self.mom_pattern], "child": [self.child_pattern]}
+        return {role: [labels] if isinstance(labels, str) else labels
+                for role, labels in self.pattern.items()}
+
+    def matching_roles(self, stem: str) -> list[str]:
+        """Match camera aliases against the filename stem using the configured mode."""
+        def matches(label: str) -> bool:
+            if self.pattern_mode == "regex":
+                return re.search(label, stem, re.IGNORECASE) is not None
+            text, label = stem.casefold(), label.casefold()
+            if self.pattern_mode == "prefix":
+                return text.startswith(label)
+            if self.pattern_mode == "suffix":
+                return text.endswith(label)
+            return (fnmatch.fnmatchcase(text, label)
+                    if any(char in label for char in "*?[") else label in text)
+
+        return [role for role, labels in self.camera_patterns.items()
+                if any(matches(label) for label in labels)]
 
     # ---- resolved directories -------------------------------------------------
     def _dir(self, name: str) -> Path:
@@ -117,6 +147,17 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
 
     `path_cls` exists so tests can exercise Windows path semantics (PureWindowsPath) on any OS.
     """
+    if not isinstance(data, dict):
+        raise ConfigError("Config must be a JSON object")
+    try:
+        return _from_dict(data, path_cls)
+    except ConfigError:
+        raise
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ConfigError(f"Invalid config settings: {exc}") from exc
+
+
+def _from_dict(data: dict[str, Any], path_cls: type[PurePath]) -> Config:
     data = dict(data)
     if "followup_root" not in data:
         raise ConfigError("'followup_root' is required")
@@ -136,6 +177,43 @@ def from_dict(data: dict[str, Any], path_cls: type[PurePath] = Path) -> Config:
         raise ConfigError("mom_pattern and child_pattern must be non-empty")
     if cfg.mom_pattern.lower() == cfg.child_pattern.lower():
         raise ConfigError("mom_pattern and child_pattern must differ")
+    if cfg.pattern is not None:
+        if not isinstance(cfg.pattern, dict) or len(cfg.pattern) < 2:
+            raise ConfigError("pattern must be an ordered object containing at least two cameras")
+        seen_roles: set[str] = set()
+        for role, labels in cfg.pattern.items():
+            if (not isinstance(role, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}", role)
+                    or role.casefold() in {"side_by_side", "con", "prn", "aux", "nul"}
+                    or re.fullmatch(r"(?:com|lpt)[1-9]", role, re.I)
+                    or role.casefold() in seen_roles):
+                raise ConfigError("pattern keys must be unique filename-safe camera names (not reserved names)")
+            seen_roles.add(role.casefold())
+            values = [labels] if isinstance(labels, str) else labels
+            if (not isinstance(values, list) or not values
+                    or any(not isinstance(value, str) or not value.strip() for value in values)):
+                raise ConfigError(f"pattern.{role} must be a non-empty string or list of non-empty strings")
+    if cfg.pattern_mode not in ("auto", "prefix", "suffix", "regex"):
+        raise ConfigError("pattern_mode must be auto, prefix, suffix or regex")
+    if cfg.pattern_mode == "regex":
+        for role, labels in cfg.camera_patterns.items():
+            for label in labels:
+                try:
+                    re.compile(label, re.IGNORECASE)
+                except re.error as exc:
+                    raise ConfigError(f"Camera pattern for {role!r} is not a valid regex: {exc}") from exc
+    if cfg.video_description is not None:
+        if (not isinstance(cfg.video_description, str)
+                or len(cfg.video_description) > 80
+                or not re.fullmatch(r"[A-Za-z0-9]+(?:[ _-][A-Za-z0-9]+)*", cfg.video_description)):
+            raise ConfigError("video_description must be null or a filename-safe description "
+                              "(letters, digits, spaces, underscores or hyphens; max 80 characters)")
+        cfg.video_description = cfg.video_description.replace(" ", "_")
+    if not isinstance(cfg.require_approval, bool):
+        raise ConfigError("require_approval must be true or false")
+    if not isinstance(cfg.require_all, bool):
+        raise ConfigError("require_all must be true or false")
+    if type(cfg.max_parallel_pairs) is not int or cfg.max_parallel_pairs < 1:
+        raise ConfigError("max_parallel_pairs must be a positive integer")
     cfg.video_extensions = [e.lower() if e.startswith(".") else "." + e.lower()
                             for e in cfg.video_extensions]
     dirs = {cfg.inbox, cfg.raw, cfg.synced, cfg.logs_qc}
@@ -149,6 +227,13 @@ def load(path: Path) -> Config:
         data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
         raise ConfigError(f"Config file not found: {path}") from exc
+    except OSError as exc:
+        raise ConfigError(f"Cannot read config file ({path}): {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Config file is not valid JSON ({path}): {exc}") from exc
-    return from_dict(data)
+    except UnicodeError as exc:
+        raise ConfigError(f"Config file is not valid UTF-8 ({path}): {exc}") from exc
+    try:
+        return from_dict(data)
+    except ConfigError as exc:
+        raise ConfigError(f"Invalid config settings ({path}): {exc}") from exc
