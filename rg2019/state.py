@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import threading
+import copy
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,28 @@ from .discovery import valid_participant_id
 
 SCHEMA = 1
 HISTORY_LIMIT = 30
+
+
+def migrate_field_state(previous: dict[str, Any]) -> dict[str, Any]:
+    """Pure migration; never reinterpret legacy SUCCESS as scientific QC approval.
+
+    Field state is a separate document from StateStore's processing schema 1.
+    Keep the complete old record for an eventual, explicitly reviewed adapter.
+    """
+    if previous.get('schema') == 2:
+        return copy.deepcopy(previous)
+    if previous.get('schema') != 1 or not isinstance(previous.get('participant_id'), str):
+        raise ValueError('unsupported legacy state')
+    return dict(schema=2, participant_id=previous['participant_id'],
+                legacy_state=copy.deepcopy(previous), files=[], issues=[],
+                delivery_status='WaitingForDelivery', integrity_status='NotVerified',
+                qc_status='NotApproved', sessions=[dict(session_id=None,
+                    review_code='REVIEW_LEGACY_SESSION_UNSPECIFIED',
+                    delivery_status='WaitingForDelivery', manifest_status='NotChecked',
+                    integrity_status='NotVerified', qc_status='NotApproved',
+                    games=[dict(game=None, status='NeedsReview',
+                                review_code='REVIEW_GAME_UNSPECIFIED',
+                                sources=copy.deepcopy(previous.get('sources', {})))])])
 
 CSV_COLUMNS = ["participant_id", "status", "mom_source", "child_source", "mom_sha256", "child_sha256",
                "mom_duration", "child_duration", "offset_seconds", "sync_confidence",
