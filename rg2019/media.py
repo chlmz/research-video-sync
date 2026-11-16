@@ -6,6 +6,8 @@ import hashlib
 import json
 import shutil
 import subprocess
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, asdict
 from fractions import Fraction
 from pathlib import Path
@@ -13,6 +15,36 @@ from pathlib import Path
 import numpy as np
 
 from .config import Config
+from .processes import MediaCancelled, ProcessController
+
+_scope_lock = threading.Lock()
+_active_scope: ProcessController | None = None
+
+
+def cancel_processes() -> None:
+    """Cancel the active execution scope, including commands in other workers."""
+    controller = _active_scope
+    if controller is not None:
+        controller.cancel()
+
+
+@contextmanager
+def process_scope():
+    """Own every worker's media child until exit; cancel before settling workers."""
+    global _active_scope
+    with _scope_lock:
+        if _active_scope is not None:
+            raise RuntimeError("a media process scope is already active")
+        controller = ProcessController()
+        _active_scope = controller
+    try:
+        yield controller
+    finally:
+        try:
+            controller.close()
+        finally:
+            with _scope_lock:
+                _active_scope = None
 
 
 class MediaError(RuntimeError):
@@ -21,8 +53,12 @@ class MediaError(RuntimeError):
 
 def _run(cmd: list[str], what: str) -> subprocess.CompletedProcess:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", stdin=subprocess.DEVNULL)
+        controller = _active_scope
+        if controller is not None:
+            r = controller.run(cmd)
+        else:
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", stdin=subprocess.DEVNULL)
     except FileNotFoundError as exc:
         raise MediaError(f"{what}: executable not found: {cmd[0]}") from exc
     except OSError as exc:
@@ -34,15 +70,35 @@ def _run(cmd: list[str], what: str) -> subprocess.CompletedProcess:
 
 
 def check_tools(cfg: Config) -> dict[str, str]:
-    """Verify ffmpeg and ffprobe exist and run.  Returns their version lines."""
+    """Verify FFmpeg tools; use managed binaries for default names missing from PATH."""
+    paths = {"ffmpeg": shutil.which(cfg.ffmpeg), "ffprobe": shutil.which(cfg.ffprobe)}
+    missing = [name for name, path in paths.items() if path is None]
+    custom_missing = [name for name in missing if getattr(cfg, name) != name]
+    if custom_missing:
+        name = custom_missing[0]
+        exe = getattr(cfg, name)
+        raise MediaError(f"'{exe}' was not found in PATH (install ffmpeg and add it to PATH, "
+                         f"or set an absolute path in the config)")
+    if missing:
+        try:
+            from static_ffmpeg import run
+
+            bundled_ffmpeg, bundled_ffprobe = run.get_or_fetch_platform_executables_else_raise()
+        except (ImportError, OSError, RuntimeError) as exc:
+            names = " and ".join(missing)
+            raise MediaError(f"'{names}' were not found in PATH and managed FFmpeg binaries "
+                             f"could not be installed: {exc}") from exc
+        bundled = {"ffmpeg": bundled_ffmpeg, "ffprobe": bundled_ffprobe}
+        for name in missing:
+            paths[name] = str(bundled[name])
+            setattr(cfg, name, str(paths[name]))
+
     out = {}
-    for exe in (cfg.ffmpeg, cfg.ffprobe):
-        path = shutil.which(exe)
+    for name, path in paths.items():
         if path is None:
-            raise MediaError(f"'{exe}' was not found in PATH (install ffmpeg and add it to PATH, "
-                             f"or set an absolute path in the config)")
-        r = _run([path, "-version"], f"{exe} -version")
-        out[exe] = r.stdout.splitlines()[0] if r.stdout else path
+            raise MediaError(f"'{getattr(cfg, name)}' was not found in PATH")
+        r = _run([path, "-version"], f"{name} -version")
+        out[getattr(cfg, name)] = r.stdout.splitlines()[0] if r.stdout else path
     return out
 
 
@@ -137,7 +193,8 @@ def extract_audio(cfg: Config, src: Path, dst_raw: Path, rate: int) -> np.ndarra
     return np.memmap(dst_raw, dtype="<i2", mode="r")
 
 
-def _encode_cmd(cfg: Config, src: Path, dst: Path, trim: float, copy: bool) -> list[str]:
+def _encode_cmd(cfg: Config, src: Path, dst: Path, trim: float, copy: bool,
+                duration: float | None = None) -> list[str]:
     e = cfg.encode
     cmd = [cfg.ffmpeg, "-nostdin", "-y", "-v", "error"]
     if trim > 0:
@@ -145,6 +202,8 @@ def _encode_cmd(cfg: Config, src: Path, dst: Path, trim: float, copy: bool) -> l
         # preceding keyframe and discards frames/samples up to the requested time).
         cmd += ["-ss", f"{trim:.6f}"]
     cmd += ["-i", str(src), "-map", "0:v:0", "-map", "0:a:0"]
+    if duration is not None:
+        cmd += ["-t", f"{duration:.6f}"]
     if copy:
         cmd += ["-c", "copy"]
     else:
@@ -162,20 +221,21 @@ def can_copy(info: MediaInfo) -> bool:
     return info.video_codec in COPY_VIDEO and info.audio_codec in COPY_AUDIO
 
 
-def encode(cfg: Config, src: Path, dst_partial: Path, trim: float, info: MediaInfo) -> str:
+def encode(cfg: Config, src: Path, dst_partial: Path, trim: float, info: MediaInfo,
+           duration: float | None = None) -> str:
     """Write the synced video for one camera to `dst_partial`.  Returns "copy" or "reencode".
 
     Decision: the camera that needs no trimming is stream-copied (no quality loss, no time)
     when its codecs are MP4-compatible; if copying fails we fall back to re-encoding.  The
     trimmed camera is always re-encoded because trimming accuracy matters more than speed.
     """
-    if trim <= 0 and cfg.encode.copy_untrimmed_when_possible and can_copy(info):
+    if duration is None and trim <= 0 and cfg.encode.copy_untrimmed_when_possible and can_copy(info):
         try:
             _run(_encode_cmd(cfg, src, dst_partial, 0.0, True), f"stream copy {src.name}")
             return "copy"
         except MediaError:
             dst_partial.unlink(missing_ok=True)
-    _run(_encode_cmd(cfg, src, dst_partial, trim, False), f"encode {src.name}")
+    _run(_encode_cmd(cfg, src, dst_partial, trim, False, duration), f"encode {src.name}")
     return "reencode"
 
 
@@ -188,3 +248,29 @@ def side_by_side(cfg: Config, mom: Path, child: Path, dst_partial: Path) -> None
           "-c:v", e.video_codec, "-preset", e.preset, "-crf", str(e.crf), "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-b:a", e.audio_bitrate, "-movflags", "+faststart", "-f", "mp4",
           str(dst_partial)], "side-by-side encode")
+
+
+def camera_grid(cfg: Config, cameras: list[Path], dst_partial: Path) -> None:
+    """Render config-ordered cameras into two equal columns, filling unused cells black."""
+    if len(cameras) < 2:
+        raise MediaError("camera grid requires at least two recordings")
+    cmd = [cfg.ffmpeg, "-nostdin", "-y", "-v", "error", "-filter_complex_threads", "1"]
+    for path in cameras:
+        cmd += ["-i", str(path)]
+    filters = [
+        f"[{index}:v:0]setpts=PTS-STARTPTS,fps=30,"
+        f"scale=640:360:force_original_aspect_ratio=decrease,"
+        f"pad=640:360:(ow-iw)/2:(oh-ih)/2,setsar=1[v{index}]"
+        for index in range(len(cameras))
+    ]
+    layout = "|".join(f"{index % 2 * 640}_{index // 2 * 360}" for index in range(len(cameras)))
+    filters.append("".join(f"[v{index}]" for index in range(len(cameras)))
+                   + f"xstack=inputs={len(cameras)}:layout={layout}:fill=black:shortest=1[v]")
+    filters.append("".join(f"[{index}:a:0]" for index in range(len(cameras)))
+                   + f"amix=inputs={len(cameras)}:duration=shortest[a]")
+    e = cfg.encode
+    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[a]",
+            "-c:v", e.video_codec, "-preset", e.preset, "-crf", str(e.crf), "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", e.audio_bitrate, "-movflags", "+faststart", "-f", "mp4",
+            str(dst_partial)]
+    _run(cmd, "camera grid encode")

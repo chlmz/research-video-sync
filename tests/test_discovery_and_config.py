@@ -99,11 +99,76 @@ def test_config_rejects_unknown_keys_and_bad_values(tmp_path):
         cfgmod.from_dict({})
 
 
+@pytest.mark.parametrize("description", ["", "../escape", "a/b", "a\\b", ".hidden", "a  b", 5, "x" * 81])
+def test_config_rejects_unsafe_video_descriptions(tmp_path, description):
+    with pytest.raises(cfgmod.ConfigError, match="video_description"):
+        cfgmod.from_dict({"followup_root": str(tmp_path), "video_description": description})
+
+
+def test_config_normalizes_description_spaces(tmp_path):
+    cfg = cfgmod.from_dict({"followup_root": str(tmp_path), "video_description": "pilot visit"})
+    assert cfg.video_description == "pilot_visit"
+
+
+def test_config_rejects_non_boolean_approval(tmp_path):
+    with pytest.raises(cfgmod.ConfigError, match="require_approval"):
+        cfgmod.from_dict({"followup_root": str(tmp_path), "require_approval": "false"})
+
+
 def test_example_config_loads_and_contains_no_real_paths():
     p = Path(__file__).resolve().parents[1] / "config.example.json"
     cfg = cfgmod.load(p)
-    assert cfg.create_side_by_side is False and cfg.require_ready_marker is False
-    assert cfg.stability_minutes == 120
+    assert cfg.create_side_by_side is True and cfg.require_ready_marker is False
+    assert cfg.stability_minutes == 0
+    defaults = cfgmod.from_dict({"followup_root": p.parent})
+    assert defaults.stability_minutes == 0 and defaults.create_side_by_side is True
+    assert cfg.video_description is None and cfg.require_approval is True
+
+
+def test_legacy_camera_pattern_names_match_sources(tmp_path):
+    data = {"followup_root": str(tmp_path), "mom_pattern": "_mum", "child_pattern": "_teen"}
+    cfg = cfgmod.from_dict(data)
+    assert cfg.pattern is None
+    assert cfg.camera_patterns == {"mom": ["_mum"], "child": ["_teen"]}
+    touch(tmp_path, "ID1234_mum.mp4", "ID1234_teen.mp4")
+    found = find_sources(cfg, tmp_path)
+    assert found.problem is None
+    assert found.child[0].name == "ID1234_teen.mp4"
+
+
+def test_pattern_mapping_takes_precedence_over_legacy_names(tmp_path):
+    cfg = cfgmod.from_dict({
+        "followup_root": str(tmp_path),
+        "mom_pattern": "_mum",
+        "child_pattern": "_teen",
+        "pattern": {"dad": ["_dad"], "room": ["_room"]},
+    })
+    assert cfg.camera_patterns == {"dad": ["_dad"], "room": ["_room"]}
+    assert cfg.matching_roles("ID1234_teen") == []
+
+
+def test_example_configs_use_matching_json_alias_lists():
+    import json
+    root = Path(__file__).resolve().parents[1]
+    example = json.loads((root / "config.example.json").read_text(encoding="utf-8"))
+    packaged = json.loads((root / "rg2019" / "config.example.json").read_text(encoding="utf-8"))
+    assert example == packaged
+    assert list(example["pattern"]) == ["mom", "teen", "3rd"]
+    assert all(isinstance(aliases, list) and aliases for aliases in example["pattern"].values())
+
+
+def test_readme_documents_all_cli_flags_and_aliases(capsys):
+    from rg2019 import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.parse_args(["--help"])
+    assert exc.value.code == 0
+    flags = set(re.findall(r"(?<![\w-])--?[a-z][a-z_-]*", capsys.readouterr().out))
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+    reference = readme.split("### Complete command-line reference", 1)[1].split(
+        "### Parallel pairs", 1)[0]
+    assert flags
+    assert not {flag for flag in flags if flag not in reference}
 
 
 def test_paths_with_spaces_and_unicode_work_end_to_end(project):
