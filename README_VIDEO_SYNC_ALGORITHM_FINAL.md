@@ -232,7 +232,7 @@ The reference is **frozen by tested code SHA**; documentation fixes do not alter
 **Proposed review before trimming.** For this field protocol, flag `abs(offset_seconds) > 30` for human review. The 30-second limit is provisional pending confirmation with the field team. The current adapter searches the full lag range and exports the global-peak candidate.
 
 1. Keep the global peak in the case log. If several distinct lags fit the audio, record the alternatives. Even unrelated recordings have a best match inside ±30 s, so an in-range peak alone is insufficient to justify a cut.
-2. Verify the pair against the reviewed session folder and its role and game labels. Camera-local sequence numbers alone cannot establish a take mismatch. Check for a camera restart or repeated sounds such as microphone handling. The cause in the reviewed case remains unknown.
+2. Resolve each recording in its reviewed participant and session folder. Use the role-labelled folder to name the local working copy before synchronization, and use the reviewed game or take label to pair the copies. Keep camera filenames such as `SNAP0007.AVI` for provenance only. Their digits carry no role, game, take or timing information. Check the capture record for a restart and the audio for repeated sounds. The cause in the reviewed case remains unknown.
 3. Before accepting a candidate, check that shared sounds line up near the beginning, middle and end of the overlap. Record separately whether both people are visible enough for the intended analysis. Keep the candidate pending while the alignment is unresolved.
 
 ## 7. Independent AI reproduction guide
