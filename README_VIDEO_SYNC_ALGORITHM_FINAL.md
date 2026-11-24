@@ -154,6 +154,35 @@ SOURCE_ROOT/
 - AVI, MP4, MOV, MKV are candidate video containers; INSV/LRV and historical JSON are auxiliaries, **not** a replacement for reviewed pair identity.
 - Transfer-in-progress files and symbolic links/junctions trigger conservative warnings or blocking. This recognition **does not guarantee completeness of the field delivery**; receiving and RAW admission are distinct future integration steps.
 
+### 4.1 Field folder layout and the handoff to synchronization
+
+Example layout with fictitious identities. Select one participant and one reviewed visit before walking the camera directories.
+
+```text
+00_INBOX/<participant>/<visit>/
+  2Amother/
+    copy_log.json
+    DCIM/100SNAPC/mother1.AVI
+    DCIM/100SNAPC/mother2.AVI
+  2Bchildren/
+    copy_log.json
+    DCIM/100SNAPC/children1.AVI
+    DCIM/100SNAPC/children2.AVI
+  Camera 360/
+```
+
+In this example, `mother2.AVI` under `2Amother` pairs with `children2.AVI` under `2Bchildren` for game 2 of this visit. The `2A` and `2B` prefixes identify cameras. Read the role label anew for each visit because assignments can change. Some deliveries repeat date or camera directories above `DCIM`. Preserve the full source paths and camera copy logs for provenance. The 360 camera is auxiliary to this two-view workflow.
+
+For a generic filename such as `SNAP0007.AVI`, derive the working role from its labelled folder. Its digits convey no information about the role, game, take, timing or correspondence with the other camera. Use a reviewed game/take folder, an explicit game label or a reviewed file mapping. Several generic clips in one role folder need a mapping to distinguish games and retakes. The standalone adapter's game 1 fallback for a unique unnumbered pair is a local convention. It does not establish a field game number.
+
+**Requested preparation order (2026-11-24).**
+
+1. Identify both source paths in the same participant, visit, game and take. Assign the two local working names from those roles and keep the mapping to the original files and hashes.
+2. Prepare the **two unsynchronized MP4s** in a separate local work folder for that take. Check the role names, actual MP4 containers, decodable video and audio, and preservation of source timing before passing the pair to synchronization.
+3. Estimate the delay from the verified pair and write the synchronized mother, child and side-by-side MP4s to local QC. Verify their names and media format before any authorized publication in the per-take `02_SYNCED` directory.
+
+**What the pinned adapter currently executes.** It stages verified copies under role names with their source extensions, extracts PCM, runs the FFT and encodes the synchronized H.264/AAC MP4s. Preparing and validating a separate unsynchronized MP4 pair beforehand is a requested workflow change.
+
 ## 5. Code, inputs, outputs and reproducibility
 
 **Public source file:** [`sync_september_field.py`](sync_september_field.py) at the pinned tested SHA. **Tests:** [`tests/test_september_field_adapter.py`](tests/test_september_field_adapter.py). **Earlier practical guide:** [`docs/SEPTEMBER_FIELD_ADAPTER.md`](docs/SEPTEMBER_FIELD_ADAPTER.md).
