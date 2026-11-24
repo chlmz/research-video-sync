@@ -154,6 +154,35 @@ SOURCE_ROOT/
 - AVI, MP4, MOV, MKV are candidate video containers; INSV/LRV and historical JSON are auxiliaries, **not** a replacement for reviewed pair identity.
 - Transfer-in-progress files and symbolic links/junctions trigger conservative warnings or blocking. This recognition **does not guarantee completeness of the field delivery**; receiving and RAW admission are distinct future integration steps.
 
+### 4.1 Field folder layout and the handoff to synchronization
+
+Example layout with fictitious identities. Select one participant and one reviewed visit before walking the camera directories.
+
+```text
+00_INBOX/<participant>/<visit>/
+  2Amother/
+    copy_log.json
+    DCIM/100SNAPC/mother1.AVI
+    DCIM/100SNAPC/mother2.AVI
+  2Bchildren/
+    copy_log.json
+    DCIM/100SNAPC/children1.AVI
+    DCIM/100SNAPC/children2.AVI
+  Camera 360/
+```
+
+In this example, `mother2.AVI` under `2Amother` pairs with `children2.AVI` under `2Bchildren` for game 2 of this visit. The `2A` and `2B` prefixes identify cameras. Read the role label anew for each visit because assignments can change. Some deliveries repeat date or camera directories above `DCIM`. Preserve the full source paths and camera copy logs for provenance. The 360 camera is auxiliary to this two-view workflow.
+
+For a generic filename such as `SNAP0007.AVI`, derive the working role from its labelled folder. Its digits convey no information about the role, game, take, timing or correspondence with the other camera. Use a reviewed game/take folder, an explicit game label or a reviewed file mapping. Several generic clips in one role folder need a mapping to distinguish games and retakes. The standalone adapter's game 1 fallback for a unique unnumbered pair is a local convention. It does not establish a field game number.
+
+**Requested preparation order (2026-11-24).**
+
+1. Identify both source paths in the same participant, visit, game and take. Assign the two local working names from those roles and keep the mapping to the original files and hashes.
+2. Prepare the **two unsynchronized MP4s** in a separate local work folder for that take. Check the role names, actual MP4 containers, decodable video and audio, and preservation of source timing before passing the pair to synchronization.
+3. Estimate the delay from the verified pair and write the synchronized mother, child and side-by-side MP4s to local QC. Verify their names and media format before any authorized publication in the per-take `02_SYNCED` directory.
+
+**What the pinned adapter currently executes.** It stages verified copies under role names with their source extensions, extracts PCM, runs the FFT and encodes the synchronized H.264/AAC MP4s. Preparing and validating a separate unsynchronized MP4 pair beforehand is a requested workflow change.
+
 ## 5. Code, inputs, outputs and reproducibility
 
 **Public source file:** [`sync_september_field.py`](sync_september_field.py) at the pinned tested SHA. **Tests:** [`tests/test_september_field_adapter.py`](tests/test_september_field_adapter.py). **Earlier practical guide:** [`docs/SEPTEMBER_FIELD_ADAPTER.md`](docs/SEPTEMBER_FIELD_ADAPTER.md).
@@ -224,6 +253,16 @@ LOCAL_QC_OUTPUT/
 The September method's raw global maximum is intentionally *not a scientific confidence probability*. Silence, weakly related recordings, repetition and microphone differences can produce a misleading offset. Use the side-by-side for visual review; record formal approval according to a separate, approved study QC policy. The existing code still labels all derived files **`NotApproved`** automatically; the investigator's positive visual judgment has been recorded separately, not used to silently relabel machine reports.
 
 The reference is **frozen by tested code SHA**; documentation fixes do not alter that code. Any proposed mathematical revision must be a new reviewed version with regression tests and explicit comparison to the functioning September-method pilot. Do **not** silently reintroduce the later normalized NCC/window gates as a prerequisite, require claps or infer session/game by date.
+
+### 6.1 When the audio offset exceeds the expected camera start delay
+
+**Field QC note, 2026-11-24.** In a field session where the cameras were expected to start seconds apart, the FFT returned a much larger offset. The original September script and the adapter reproduced the same result. The three MP4s decoded successfully, but the investigator rejected the alignment. Poor framing also made the interaction hard to see. The correct offset for that pair remains unknown.
+
+**Proposed review before trimming.** For this field protocol, flag `abs(offset_seconds) > 30` for human review. The 30-second limit is provisional pending confirmation with the field team. The current adapter searches the full lag range and exports the global-peak candidate.
+
+1. Keep the global peak in the case log. If several distinct lags fit the audio, record the alternatives. Even unrelated recordings have a best match inside ±30 s, so an in-range peak alone is insufficient to justify a cut.
+2. Resolve each recording in its reviewed participant and session folder. Use the role-labelled folder to name the local working copy before synchronization, and use the reviewed game or take label to pair the copies. Keep camera filenames such as `SNAP0007.AVI` for provenance only. Their digits carry no role, game, take or timing information. Check the capture record for a restart and the audio for repeated sounds. The cause in the reviewed case remains unknown.
+3. Before accepting a candidate, check that shared sounds line up near the beginning, middle and end of the overlap. Record separately whether both people are visible enough for the intended analysis. Keep the candidate pending while the alignment is unresolved.
 
 ## 7. Independent AI reproduction guide
 
