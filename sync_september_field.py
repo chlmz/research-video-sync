@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 import wave
 
@@ -283,7 +284,51 @@ def copy_source(src: Path, dst: Path) -> str:
     return digest
 
 
-def ffprobe_media(ffprobe: str, path: Path) -> dict:
+def avi_audio_timing(ffprobe: str, path: Path, audio: dict, pcm: Path) -> dict:
+    """Measure contiguous decoded AVI audio and cross-check the PCM used for the FFT."""
+    rate = int(audio["sample_rate"])
+    tick = Fraction(audio["time_base"])
+    if rate <= 0 or tick <= 0:
+        raise SyncError("invalid AVI audio clock")
+    clock = tick.numerator * rate
+    samples = 0
+    first = None
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", dir=pcm.parent) as frames:
+        probe = subprocess.run([ffprobe, "-v", "error", "-select_streams", "a:0", "-show_frames",
+                                "-show_entries", "frame=best_effort_timestamp,nb_samples:frame_side_data=",
+                                "-of", "compact", str(path)], stdout=frames, stderr=subprocess.PIPE,
+                               stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace")
+        if probe.returncode or probe.stderr.strip():
+            raise SyncError(f"AVI audio frame probe failed: {probe.stderr[-800:]}")
+        frames.seek(0)
+        for line in frames:
+            if not line.startswith("frame|"):
+                continue
+            fields = dict(item.split("=", 1) for item in line.strip().split("|")[1:] if "=" in item)
+            try:
+                pts = int(fields["best_effort_timestamp"])
+                count = int(fields["nb_samples"])
+            except (KeyError, ValueError) as exc:
+                raise SyncError("missing AVI audio timestamp or sample count") from exc
+            if first is None:
+                first = pts
+            # The accumulated sample time must agree with each timestamp to clock precision.
+            if count <= 0 or abs((pts - first) * clock - samples * tick.denominator) >= clock:
+                raise SyncError("AVI audio timestamps disagree with decoded sample counts")
+            samples += count
+    if first is None:
+        raise SyncError("no decoded AVI audio frames")
+    with wave.open(str(pcm), "rb") as wav:
+        pcm_rate, pcm_samples = wav.getframerate(), wav.getnframes()
+    if abs(pcm_samples * rate - samples * pcm_rate) > max(rate, pcm_rate):
+        raise SyncError("extracted PCM duration disagrees with the AVI audio timeline")
+    return dict(audio_start=float(first * tick), audio_seconds=samples / rate,
+                audio_timing=dict(source="decoded_avi_frames_and_fft_pcm", samples=samples,
+                                  first_pts=first, time_base=str(tick), pcm_samples=pcm_samples,
+                                  pcm_rate=pcm_rate, header_seconds=audio.get("duration")))
+
+
+def ffprobe_media(ffprobe: str, path: Path, *, pcm: Path | None = None) -> dict:
     p = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format",
                         "-of", "json", str(path)], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
@@ -305,11 +350,14 @@ def ffprobe_media(ffprobe: str, path: Path) -> dict:
     fps = float(Fraction(rate))
     if not math.isfinite(duration) or duration <= 0 or not math.isfinite(fps) or fps <= 0:
         raise SyncError("invalid duration or frame rate")
-    return dict(video=video["codec_name"], audio=audio["codec_name"],
+    media = dict(video=video["codec_name"], audio=audio["codec_name"],
                 duration_seconds=duration, frame_rate=fps, container=data["format"]["format_name"],
                 video_start=float(video.get("start_time", 0)), audio_start=float(audio.get("start_time", 0)),
                 video_seconds=float(video.get("duration", duration)), audio_seconds=float(audio.get("duration", duration)),
                 sample_rate=int(audio["sample_rate"]), width=int(video["width"]), height=int(video["height"]))
+    if pcm is not None and "avi" in media["container"].split(","):
+        media.update(avi_audio_timing(ffprobe, path, audio, pcm))
+    return media
 
 
 def encode(ffmpeg: str, src: Path, target: Path, trim: float, duration: float) -> None:
@@ -384,10 +432,11 @@ def execute_job(job: Job, output_root: Path, *, ffmpeg="ffmpeg", ffprobe="ffprob
         dest = work / f"{role}{source.suffix.lower()}"
         source_hashes[role] = copy_source(source, dest)
         copied[role] = dest
-        input_media[role] = ffprobe_media(ffprobe, dest)
+        pcm = work / f"{role}.wav"
         run_command([ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-xerror", "-n",
                      "-i", str(dest), "-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(sample_rate),
-                     "-c:a", "pcm_s16le", "-f", "wav", str(work / f"{role}.wav")], "audio extraction")
+                     "-c:a", "pcm_s16le", "-f", "wav", str(pcm)], "audio extraction")
+        input_media[role] = ffprobe_media(ffprobe, dest, pcm=pcm)
     evidence = september_offset(work / "mom.wav", work / "child.wav", review_policy)
     offset = evidence["offset_seconds"]
     trims = {"mom": max(0., offset), "child": max(0., -offset)}
@@ -406,14 +455,6 @@ def execute_job(job: Job, output_root: Path, *, ffmpeg="ffmpeg", ffprobe="ffprob
         if abs(m["video_start"] - m["audio_start"]) > max(1/m["frame_rate"], 1024/m["sample_rate"]):
             reasons.append(f"{role.upper()}_AUDIO_VIDEO_ORIGINS_DIFFER")
     output_meta = {}
-    if not reasons:
-        for role in ("mom", "child"):
-            encode(ffmpeg, copied[role], attempt / filenames[role], trims[role], duration)
-        make_side_by_side(ffmpeg, attempt / filenames["mom"], attempt / filenames["child"],
-                          attempt / filenames["side_by_side"])
-        tolerance = max(max(1/m["frame_rate"], 1024/m["sample_rate"]) for m in input_media.values()) + 0.002
-        for role, filename in filenames.items():
-            output_meta[role] = verify_candidate(ffmpeg, ffprobe, attempt/filename, duration, tolerance)
     report = dict(schema="rg2019.september-adapter.v2", timestamp=datetime.now(timezone.utc).isoformat(),
                   participant=job.participant, session_root=job.session, game=job.game,
                   pairing=job.selection, inputs=dict(mom=str(job.mom), child=str(job.child)),
@@ -422,6 +463,24 @@ def execute_job(job: Job, output_root: Path, *, ffmpeg="ffmpeg", ffprobe="ffprob
                   review_policy=dict(max_offset_seconds=max_offset_seconds, **vars(review_policy)),
                   status="NEEDS_REVIEW" if reasons else "CANDIDATE_FOR_MANUAL_QC", qc_status="NotApproved",
                   warning="Unqualified September full-audio correlation maximum; NOT scientifically validated")
+    if not reasons:
+        try:
+            for role in ("mom", "child"):
+                encode(ffmpeg, copied[role], work / filenames[role], trims[role], duration)
+            make_side_by_side(ffmpeg, work / filenames["mom"], work / filenames["child"],
+                              work / filenames["side_by_side"])
+            tolerance = max(max(1/m["frame_rate"], 1024/m["sample_rate"]) for m in input_media.values()) + 0.002
+            for role, filename in filenames.items():
+                output_meta[role] = verify_candidate(ffmpeg, ffprobe, work/filename, duration, tolerance)
+        except SyncError as exc:
+            # Keep the measured timing on a failed encode. Only complete trios reach the final folder.
+            failure = dict(report, status="FAILED", detail=str(exc), outputs={})
+            (attempt / "sync_report.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+            for filename in filenames.values():
+                (work / filename).unlink(missing_ok=True)
+            raise
+        for filename in filenames.values():
+            (work / filename).rename(attempt / filename)
     (attempt / "sync_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     # Never promote temporary source media or audio to a candidate-output directory.
     shutil.rmtree(work)

@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import struct
 import subprocess
 import wave
 
@@ -101,12 +102,23 @@ def make_avi(path: Path, audio: np.ndarray, tmp_path, rate=16000):
         '-c:a','pcm_s16le','-f','avi',str(path)],check=True)
 
 
-def test_end_to_end_september_three_mp4_no_original_change(tmp_path):
+@pytest.mark.parametrize('short_avi_header', [False, True])
+def test_end_to_end_september_three_mp4_no_original_change(tmp_path, short_avi_header):
     rate=16000
     signal=np.random.default_rng(11).integers(-20000,20000,size=rate*8,dtype=np.int16)
     root=tmp_path/'00_INBOX'; mom=root/'000003'/'delivery'/'CAM_A'/'mother1.avi'; child=root/'000003'/'delivery'/'CAM_B'/'children1.avi'
     make_avi(mom,signal,tmp_path)
     make_avi(child,signal[rate*2:],tmp_path)
+    if short_avi_header:
+        for path in (mom, child):
+            # Reproduce an AVI writer counting PCM blocks instead of individual samples.
+            data = bytearray(path.read_bytes())
+            start = data.index(b'auds')
+            assert data[start-8:start-4] == b'strh'
+            length = struct.unpack_from('<I', data, start + 32)[0]
+            struct.pack_into('<I', data, start + 32, length // 256)
+            struct.pack_into('<I', data, start + 44, 0xffffffff)
+            path.write_bytes(data)
     before=(module.checksum(mom), module.checksum(child))
     jobs,issues=module.find_jobs(root,'000003','delivery')
     assert len(jobs)==1 and not issues
@@ -117,12 +129,57 @@ def test_end_to_end_september_three_mp4_no_original_change(tmp_path):
     assert report['status']=='CANDIDATE_FOR_MANUAL_QC'
     assert report['trims']['mom']==pytest.approx(2.0,abs=.01)
     assert report['trims']['child']==0
+    for role, seconds in (('mom', 8), ('child', 6)):
+        media = report['input_media'][role]
+        assert media['audio_seconds'] == seconds
+        assert media['audio_timing']['samples'] == seconds * rate
+        if short_avi_header:
+            assert float(media['audio_timing']['header_seconds']) < 1
     assert (module.checksum(mom),module.checksum(child))==before
     assert sorted(p.suffix for p in dest.iterdir())==['.json','.mp4','.mp4','.mp4']
     assert all((dest/x['filename']).stat().st_size>0 for x in report['outputs'].values())
     with pytest.raises(module.SyncError, match='exists'):
         module.execute_job(jobs[0],target)
     assert not (root/'000003'/'delivery'/'synced').exists()
+
+
+@pytest.mark.parametrize('second_pts,wav_samples,why', [
+    (1792, 512, 'timestamps'), (1280, 512, 'timestamps'), (1536, 500, 'PCM duration'),
+])
+def test_avi_timing_rejects_inconsistent_evidence(tmp_path, monkeypatch, second_pts, wav_samples, why):
+    def probe(cmd, *, stdout, **kwargs):
+        stdout.write('frame|best_effort_timestamp=1280|nb_samples=256\n')
+        stdout.write(f'frame|best_effort_timestamp={second_pts}|nb_samples=256\n')
+        return subprocess.CompletedProcess(cmd, 0, stderr='')
+    monkeypatch.setattr(subprocess, 'run', probe)
+    pcm = tmp_path / 'sound.wav'
+    write_wav(pcm, np.zeros(wav_samples))
+    with pytest.raises(module.SyncError, match=why):
+        module.avi_audio_timing('ffprobe', tmp_path/'input.avi',
+                                dict(sample_rate=16000, time_base='1/16000'), pcm)
+
+
+def test_avi_video_decode_failure_preserves_timing_without_candidate(tmp_path):
+    audio = np.random.default_rng(32).integers(-15000, 15000, 16000 * 16, dtype=np.int16)
+    mom, child = tmp_path/'mom.avi', tmp_path/'child.avi'
+    make_avi(mom, audio, tmp_path)
+    make_avi(child, audio[16000:], tmp_path)
+    packets = subprocess.check_output(['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                                       '-show_packets', '-show_entries', 'packet=pos,size',
+                                       '-of', 'json', str(child)], text=True)
+    damaged = json.loads(packets)['packets'][-20]
+    with child.open('r+b') as fp:
+        fp.seek(int(damaged['pos']))
+        fp.write(b'\xaa' * int(damaged['size']))
+    job = module.Job('999999', 'synthetic', 1, mom, child, 'explicit_user_pair')
+    with pytest.raises(module.SyncError, match='encode failed'):
+        module.execute_job(job, tmp_path/'out')
+    report_path, = (tmp_path/'out').rglob('sync_report.json')
+    report = json.loads(report_path.read_text())
+    assert report['status'] == 'FAILED' and report['outputs'] == {}
+    assert report['offset_seconds'] == pytest.approx(1) and report['common_seconds'] == pytest.approx(15)
+    assert not list((tmp_path/'out').rglob('*.mp4'))
+    assert not module.target_folder(tmp_path/'out', job).exists()
 
 
 def test_output_identity_cannot_traverse(tmp_path):
