@@ -1,9 +1,15 @@
 # research-video-sync
 
+Para sincronizar un par de MP4 ya identificado por visita, juego y toma, utilice la interfaz de pares explícitos de septiembre. La guía incluye la convención del desfase, la barrera de revisión antes del recorte y el formato del informe. [Guía del adaptador](docs/SEPTEMBER_FIELD_ADAPTER.md)
+
+> **Alcance y estado, 24/11/2026:** este repositorio conserva el método científico de sincronización. El **pipeline GPIS continuo** — descubrimiento diario de `00_INBOX`, admisión de nuevos originales a `01_RAW`, estados e idempotencia por visita/juego/toma, preparación de MP4, QC y publicación autorizada en `02_SYNCED` — corresponde al integrador privado [`gpis-nas-pipeline`](https://github.com/chlmz/gpis-nas-pipeline). No es una funcionalidad que `sync_september_field.py` deba implementar por sí mismo. Ver [PR de la FFT de septiembre](https://github.com/chlmz/research-video-sync/pull/10) (draft, aún no fusionado).
+>
+> **No ejecutar el flujo plano v2 descrito más abajo sobre la nueva jerarquía GPIS de sesiones/juegos/tomas.** Los comandos de `pipeline_rg2019.py` y sus rutas planas se conservan como documentación de una implementación anterior; no demuestran que el pipeline diario actual esté integrado o desplegado. La sincronización FFT puede extraer audio directamente de AVI; el integrador puede preparar MP4 interoperables antes de invocarla, siempre verificando la temporización. La normalización MP4 y el QC no justifican modificar el algoritmo FFT fijado.
+
 Audio-based synchronisation of the two camera recordings (mother / child) of the RG2019 follow-up
 study, designed for a **Synology-Drive-synchronised project folder** on a private Windows workstation.
 
-> **Production = `pipeline_rg2019.py` (v2, Python).**
+> **Historically labelled production: `pipeline_rg2019.py` (v2, Python, flat layout). Not the validated modern nested daily GPIS pipeline.**
 > `sync_research_project.sh` and `sync_videos.sh` are **LEGACY**, kept only for history. Do **not** use them
 > on the NAS workflow: they write markers inside participant folders, trim the wrong camera
 > (`sync_videos.sh`), and abort after the first participant (`set -e`). See [docs/LEGACY_AUDIT.md](docs/LEGACY_AUDIT.md).
