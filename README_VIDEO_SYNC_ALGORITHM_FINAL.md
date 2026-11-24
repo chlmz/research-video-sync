@@ -225,6 +225,16 @@ The September method's raw global maximum is intentionally *not a scientific con
 
 The reference is **frozen by tested code SHA**; documentation fixes do not alter that code. Any proposed mathematical revision must be a new reviewed version with regression tests and explicit comparison to the functioning September-method pilot. Do **not** silently reintroduce the later normalized NCC/window gates as a prerequisite, require claps or infer session/game by date.
 
+### 6.1 When the audio offset exceeds the expected camera start delay
+
+**Field QC note, 2026-11-24.** In a field session where the cameras were expected to start seconds apart, the FFT returned a much larger offset. The original September script and the adapter reproduced the same result. The three MP4s decoded successfully, but the investigator rejected the alignment. Poor framing also made the interaction hard to see. The correct offset for that pair remains unknown.
+
+**Proposed review before trimming.** For this field protocol, flag `abs(offset_seconds) > 30` for human review. The 30-second limit is provisional pending confirmation with the field team. The current adapter searches the full lag range and exports the global-peak candidate.
+
+1. Keep the global peak in the case log. If several distinct lags fit the audio, record the alternatives. Even unrelated recordings have a best match inside ±30 s, so an in-range peak alone is insufficient to justify a cut.
+2. Verify the pair against the reviewed session folder and its role and game labels. Camera-local sequence numbers alone cannot establish a take mismatch. Check for a camera restart or repeated sounds such as microphone handling. The cause in the reviewed case remains unknown.
+3. Before accepting a candidate, check that shared sounds line up near the beginning, middle and end of the overlap. Record separately whether both people are visible enough for the intended analysis. Keep the candidate pending while the alignment is unresolved.
+
 ## 7. Independent AI reproduction guide
 
 To adapt this product for another study, a human or AI must:
