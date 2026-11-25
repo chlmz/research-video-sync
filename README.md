@@ -1,6 +1,6 @@
 # research-video-sync
 
-Para sincronizar un par de MP4 ya identificado por visita, juego y toma, utilice la interfaz de pares explícitos de septiembre. La guía incluye la convención del desfase, la barrera de revisión antes del recorte y el formato del informe. [Guía del adaptador](docs/SEPTEMBER_FIELD_ADAPTER.md)
+Para sincronizar las dos vistas revisadas de una tentativa de la actividad madre–criança, utilice la interfaz de pares explícitos de septiembre. Una visita corresponde a una actividad y puede contener varias tentativas. Los campos heredados `game` y `take` identifican salidas para el integrador. Un desfase absoluto superior a 30 segundos solicita revisión visual y permite generar los tres MP4 cuando pasan los controles técnicos. El resultado queda pendiente de QC. [Guía del adaptador](docs/SEPTEMBER_FIELD_ADAPTER.md)
 
 > **Alcance y estado, 24/11/2026:** este repositorio conserva el método científico de sincronización. El **pipeline GPIS continuo** — descubrimiento diario de `00_INBOX`, admisión de nuevos originales a `01_RAW`, estados e idempotencia por visita/juego/toma, preparación de MP4, QC y publicación autorizada en `02_SYNCED` — corresponde al integrador privado [`gpis-nas-pipeline`](https://github.com/chlmz/gpis-nas-pipeline). No es una funcionalidad que `sync_september_field.py` deba implementar por sí mismo. Ver [PR de la FFT de septiembre](https://github.com/chlmz/research-video-sync/pull/10) (draft, aún no fusionado).
 >

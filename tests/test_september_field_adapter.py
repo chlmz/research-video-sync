@@ -102,6 +102,17 @@ def make_avi(path: Path, audio: np.ndarray, tmp_path, rate=16000):
         '-c:a','pcm_s16le','-f','avi',str(path)],check=True)
 
 
+def shorten_pcm_header(path):
+    # Reproduce an AVI writer counting PCM blocks instead of individual samples.
+    data = bytearray(path.read_bytes())
+    start = data.index(b'auds')
+    assert data[start-8:start-4] == b'strh'
+    length = struct.unpack_from('<I', data, start + 32)[0]
+    struct.pack_into('<I', data, start + 32, length // 256)
+    struct.pack_into('<I', data, start + 44, 0xffffffff)
+    path.write_bytes(data)
+
+
 @pytest.mark.parametrize('short_avi_header', [False, True])
 def test_end_to_end_september_three_mp4_no_original_change(tmp_path, short_avi_header):
     rate=16000
@@ -111,14 +122,7 @@ def test_end_to_end_september_three_mp4_no_original_change(tmp_path, short_avi_h
     make_avi(child,signal[rate*2:],tmp_path)
     if short_avi_header:
         for path in (mom, child):
-            # Reproduce an AVI writer counting PCM blocks instead of individual samples.
-            data = bytearray(path.read_bytes())
-            start = data.index(b'auds')
-            assert data[start-8:start-4] == b'strh'
-            length = struct.unpack_from('<I', data, start + 32)[0]
-            struct.pack_into('<I', data, start + 32, length // 256)
-            struct.pack_into('<I', data, start + 44, 0xffffffff)
-            path.write_bytes(data)
+            shorten_pcm_header(path)
     before=(module.checksum(mom), module.checksum(child))
     jobs,issues=module.find_jobs(root,'000003','delivery')
     assert len(jobs)==1 and not issues
@@ -135,6 +139,8 @@ def test_end_to_end_september_three_mp4_no_original_change(tmp_path, short_avi_h
         assert media['audio_timing']['samples'] == seconds * rate
         if short_avi_header:
             assert float(media['audio_timing']['header_seconds']) < 1
+            assert media['decode_proof']['mode'] == 'pcm_header_normalized'
+            assert media['decode_proof']['pcm_header']['verified_samples'] == rate * seconds
     assert (module.checksum(mom),module.checksum(child))==before
     assert sorted(p.suffix for p in dest.iterdir())==['.json','.mp4','.mp4','.mp4']
     assert all((dest/x['filename']).stat().st_size>0 for x in report['outputs'].values())
@@ -172,7 +178,7 @@ def test_avi_video_decode_failure_preserves_timing_without_candidate(tmp_path):
         fp.seek(int(damaged['pos']))
         fp.write(b'\xaa' * int(damaged['size']))
     job = module.Job('999999', 'synthetic', 1, mom, child, 'explicit_user_pair')
-    with pytest.raises(module.SyncError, match='encode failed'):
+    with pytest.raises(module.SyncError, match='decode'):
         module.execute_job(job, tmp_path/'out')
     report_path, = (tmp_path/'out').rglob('sync_report.json')
     report = json.loads(report_path.read_text())
@@ -261,7 +267,8 @@ def prepared_pair(tmp_path, offset, sound):
 
 @pytest.mark.parametrize('offset,sound,reason', [
     (0.875, 'broadband', None), (-0.875, 'broadband', None),
-    (31.25, 'broadband', 'OFFSET_EXCEEDS_REVIEW_LIMIT'),
+    (31.25, 'broadband', None), (-31.25, 'broadband', None),
+    (30, 'broadband', None),
     (0, 'periodic', 'COMPETING_FFT_PEAK'), (0, 'silent', 'INSUFFICIENT_ACTIVE_AUDIO'),
 ])
 def test_reviewed_mp4_cli(tmp_path, capsys, offset, sound, reason):
@@ -273,7 +280,9 @@ def test_reviewed_mp4_cli(tmp_path, capsys, offset, sound, reason):
     summary = json.loads(capsys.readouterr().out)['results'][0]
     dest = Path(summary['output_folder'])
     report = json.loads((dest/'sync_report.json').read_text())
-    assert report['qc_status'] == 'NotApproved'
+    assert report['qc_status'] == 'NotApproved' and report['qc'] == 'PENDING'
+    assert report['warnings'] == (['LARGE_OFFSET_REVIEW'] if abs(report['offset_seconds']) > 30 else [])
+    assert report['visual_review_requested'] is True
     assert report['input_sha256'] == {'mom': module.checksum(mom), 'child': module.checksum(child)}
     if sound == 'broadband':
         assert report['offset_seconds'] == pytest.approx(offset, abs=1/16000)
@@ -301,4 +310,85 @@ def test_review_limit_does_not_change_estimated_offset(tmp_path):
     job = module.Job('999999', 'synthetic', 1, mom, child, 'explicit_user_pair')
     _, report = module.execute_job(job, tmp_path/'out', max_offset_seconds=1)
     assert report['offset_seconds'] == pytest.approx(1.25, abs=1/16000)
-    assert report['review_reasons'] == ['OFFSET_EXCEEDS_REVIEW_LIMIT']
+    assert report['review_reasons'] == []
+    assert report['warnings'] == ['LARGE_OFFSET_REVIEW'] and len(report['outputs']) == 3
+
+
+def test_large_offset_warning_preserves_overlap_hold(tmp_path):
+    mom, child = prepared_pair(tmp_path, 33, 'broadband')
+    job = module.Job('999999', 'synthetic', 1, mom, child, 'explicit_user_pair')
+    dest, report = module.execute_job(job, tmp_path/'out',
+                                      review_policy=module.ReviewPolicy(min_overlap_seconds=5))
+    assert report['offset_seconds'] == pytest.approx(33, abs=1/16000)
+    assert report['warnings'] == ['LARGE_OFFSET_REVIEW']
+    assert 'INSUFFICIENT_AV_OVERLAP' in report['review_reasons']
+    assert report['status'] == 'NEEDS_REVIEW' and not list(dest.glob('*.mp4'))
+
+
+def test_360_folder_is_excluded_even_with_headcam_names(tmp_path):
+    session = tmp_path/'999999'/'visit'
+    for role in ('mother', 'child'):
+        (session/role).mkdir(parents=True)
+        (session/role/'SNAP0001.AVI').write_bytes(b'headcam fixture')
+        sub = session/'Câmera 360'/role
+        sub.mkdir(parents=True)
+        (sub/'SNAP0002.AVI').write_bytes(b'excluded fixture')
+    jobs, issues = module.find_jobs(tmp_path, '999999', 'visit')
+    assert len(jobs) == 1 and not issues and jobs[0].child.parent == session/'child'
+    with pytest.raises(module.SyncError):
+        module.execute_job(module.Job('999999', 'visit', 1, jobs[0].mom,
+                                      session/'Câmera 360'/'child'/'SNAP0002.AVI', 'explicit_user_pair'),
+                           tmp_path/'out')
+
+
+def corrupt_packet(path, index, byte=0):
+    packets = json.loads(subprocess.check_output(
+        ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_packets',
+         '-show_entries', 'packet=pos,size', '-of', 'json', str(path)]))['packets']
+    packet = packets[index]
+    with path.open('r+b') as stream:
+        stream.seek(int(packet['pos']))
+        stream.write(bytes([byte]) * int(packet['size']))
+
+
+@pytest.mark.parametrize('short_avi_header', [False, True])
+def test_terminal_packet_recovery_and_preservation(tmp_path, capsys, short_avi_header):
+    audio = np.random.default_rng(83).integers(-12000, 12000, 16000 * 6, dtype=np.int16)
+    mom, child = tmp_path/'mom.avi', tmp_path/'child.avi'
+    make_avi(mom, audio, tmp_path)
+    make_avi(child, audio[16000:], tmp_path)
+    recovered = tmp_path/'corrected.avi'
+    assert module.main(['prepare-headcam', str(child), str(recovered)]) == 0
+    assert json.loads(capsys.readouterr().out)['mode'] == 'original' and not recovered.exists()
+    corrupt_packet(child, -1)
+    if short_avi_header:
+        shorten_pcm_header(child)
+    original_digest = module.checksum(child)
+    assert module.main(['prepare-headcam', str(child), str(recovered)]) == 0
+    proof = json.loads(capsys.readouterr().out)
+    assert proof['mode'] == 'terminal_zero_packet_removed'
+    assert proof['source_sha256'] == original_digest == module.checksum(child)
+    assert proof['prepared_sha256'] == module.checksum(recovered)
+    assert proof['strict_av_full_decode'] and proof['excluded_packet']['all_zero']
+    assert ('pcm_header' in proof) == short_avi_header
+    assert proof['retained_video_packets'] == proof['excluded_packet']['index'] == 49
+    assert module.main(['prepare-headcam', str(child), str(recovered)]) == 2
+    assert proof['prepared_sha256'] == module.checksum(recovered)
+    job = module.Job('999999', 'synthetic', 1, mom, child, 'explicit_user_pair')
+    _, report = module.execute_job(job, tmp_path/'out')
+    assert report['input_sha256']['child'] == original_digest
+    assert report['input_media']['child']['decode_proof']['mode'] == 'terminal_zero_packet_removed'
+    assert report['common_seconds'] == pytest.approx(4.9)
+    assert report['offset_seconds'] == pytest.approx(1)
+    assert len(report['outputs']) == 3 and report['qc'] == 'PENDING'
+
+
+@pytest.mark.parametrize('damage', [[(-1, 170)], [(-2, 0)], [(-2, 0), (-1, 0)]])
+def test_terminal_recovery_requires_isolated_zero_packet(tmp_path, damage):
+    path, recovered = tmp_path/'camera.avi', tmp_path/'corrected.avi'
+    make_avi(path, np.ones(16000 * 4, dtype=np.int16), tmp_path)
+    for index, byte in damage:
+        corrupt_packet(path, index, byte)
+    before = module.checksum(path)
+    assert module.main(['prepare-headcam', str(path), str(recovered)]) == 2
+    assert module.checksum(path) == before and not recovered.exists()
